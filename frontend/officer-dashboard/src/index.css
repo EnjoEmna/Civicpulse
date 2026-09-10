@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  CivicPulse design tokens — officer dashboard
+  Same palette as the citizen portal (brand consistency), higher density here:
+  this app is used for hours at a stretch, so contrast and scan-ability matter
+  more than warmth.
+*/
+:root {
+  --color-ink: #0f172a;
+  --color-ink-soft: #475569;
+  --color-bg: #f2f4f7;
+  --color-surface: #ffffff;
+  --color-border: #e2e8f0;
+
+  --color-primary: #123c61;
+  --color-primary-strong: #0b2c48;
+  --color-primary-soft: #e7edf3;
+
+  --color-status-open: #b45309;
+  --color-status-open-bg: #fef3e2;
+  --color-status-progress: #1d4ed8;
+  --color-status-progress-bg: #e8eefc;
+  --color-status-resolved: #15803d;
+  --color-status-resolved-bg: #e7f6ec;
+  --color-status-rejected: #b91c1c;
+  --color-status-rejected-bg: #fbe9e9;
+
+  --color-sidebar: #0b2440; /* darker navy, distinguishes officer chrome from citizen app */
+
+  --focus-ring: 0 0 0 3px rgba(18, 60, 97, 0.35);
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-feature-settings: "cv11", "ss01", "tnum"; /* tabular numbers for data tables */
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

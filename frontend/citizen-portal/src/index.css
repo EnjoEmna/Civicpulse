@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  CivicPulse design tokens — citizen portal
+  Design read: public-sector, trust-first, accessibility-critical.
+  One locked accent (civic navy). Status colors are semantic, not decorative.
+*/
+:root {
+  --color-ink: #0f172a;       /* slate-900, primary text */
+  --color-ink-soft: #475569;  /* slate-600, secondary text */
+  --color-bg: #f5f7fa;        /* app background */
+  --color-surface: #ffffff;   /* cards / panels */
+  --color-border: #e2e8f0;    /* slate-200 */
+
+  --color-primary: #123c61;       /* civic navy — the one accent */
+  --color-primary-strong: #0b2c48;
+  --color-primary-soft: #e7edf3;
+
+  --color-status-open: #b45309;      /* amber-700 */
+  --color-status-open-bg: #fef3e2;
+  --color-status-progress: #1d4ed8;  /* blue-700 */
+  --color-status-progress-bg: #e8eefc;
+  --color-status-resolved: #15803d;  /* green-700 */
+  --color-status-resolved-bg: #e7f6ec;
+  --color-status-rejected: #b91c1c;  /* red-700 */
+  --color-status-rejected-bg: #fbe9e9;
+
+  --focus-ring: 0 0 0 3px rgba(18, 60, 97, 0.35);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-feature-settings: "cv11", "ss01";
+}
+
+/* Consistent, visible focus state everywhere — non-negotiable for a public-sector app */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
