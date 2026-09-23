@@ -34,15 +34,31 @@
 }
 
 body {
-  background: var(--color-bg);
   color: var(--color-ink);
   font-feature-settings: "cv11", "ss01", "tnum"; /* tabular numbers for data tables */
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /*
+    Apple-inspired ambient aurora canvas.
+    Rich, chromatic orbs provide vibrant background light so the frosted
+    glass panels produce authentic refraction & depth without washing out.
+  */
+  background-color: #f1f4f9;
+  background-image:
+    radial-gradient(750px circle at 5% 5%, rgba(37, 99, 235, 0.18), transparent 55%),
+    radial-gradient(650px circle at 90% 15%, rgba(99, 102, 241, 0.16), transparent 50%),
+    radial-gradient(700px circle at 75% 85%, rgba(16, 185, 129, 0.14), transparent 55%),
+    radial-gradient(600px circle at 15% 90%, rgba(245, 158, 11, 0.12), transparent 50%),
+    radial-gradient(500px circle at 50% 50%, rgba(147, 51, 234, 0.08), transparent 60%);
+  background-attachment: fixed;
 }
 
 :focus-visible {
   outline: none;
-  box-shadow: var(--focus-ring);
-  border-radius: 6px;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.4);
+  border-radius: 12px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -50,5 +66,139 @@ body {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+  }
+}
+
+/* Custom slender iOS scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
+}
+
+/* ---- Apple iOS Glass Design System (Liquid Glass) ---- */
+@layer components {
+  /* Core iOS squircle frosted glass card/panel */
+  .glass-panel {
+    background-color: rgba(255, 255, 255, 0.65);
+    -webkit-backdrop-filter: blur(20px) saturate(190%) contrast(102%);
+    backdrop-filter: blur(20px) saturate(190%) contrast(102%);
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    border-radius: 22px;
+    box-shadow:
+      inset 0 1px 1px 0 rgba(255, 255, 255, 0.9),
+      inset 0 -1px 0.5px 0 rgba(0, 0, 0, 0.02),
+      0 10px 30px -4px rgba(15, 23, 42, 0.06),
+      0 2px 6px -1px rgba(15, 23, 42, 0.03);
+    position: relative;
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s ease;
+  }
+
+  /* Dark frosted glass panel (login backdrop or high-contrast chrome) */
+  .glass-panel-dark {
+    background-color: rgba(11, 36, 64, 0.85);
+    -webkit-backdrop-filter: blur(26px) saturate(190%);
+    backdrop-filter: blur(26px) saturate(190%);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow:
+      inset 0 1px 1px 0 rgba(255, 255, 255, 0.22),
+      inset 0 -1px 1px 0 rgba(0, 0, 0, 0.4),
+      0 16px 40px -6px rgba(0, 0, 0, 0.4);
+  }
+
+  /* Medium-dark frosted twilight glass sidebar — balanced contrast, not too dark and not too bright */
+  .glass-sidebar {
+    background: linear-gradient(180deg, rgba(26, 46, 74, 0.78) 0%, rgba(18, 34, 58, 0.84) 100%);
+    -webkit-backdrop-filter: blur(28px) saturate(190%);
+    backdrop-filter: blur(28px) saturate(190%);
+    border-right: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow:
+      inset -1px 0 1px 0 rgba(255, 255, 255, 0.2),
+      6px 0 32px -4px rgba(15, 23, 42, 0.22);
+  }
+
+  /* Frosted bars (Headers, sticky navigation, mobile tab bar) */
+  .glass-bar {
+    background-color: rgba(255, 255, 255, 0.72);
+    -webkit-backdrop-filter: blur(24px) saturate(190%);
+    backdrop-filter: blur(24px) saturate(190%);
+    border-color: rgba(255, 255, 255, 0.65);
+    box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.04);
+  }
+
+  /* iOS Frosted Inputs with specular inner gleam */
+  .glass-input {
+    background-color: rgba(255, 255, 255, 0.6);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.75);
+    border-radius: 12px;
+    box-shadow:
+      inset 0 1px 2px 0 rgba(0, 0, 0, 0.03),
+      inset 0 1px 0.5px 0 rgba(255, 255, 255, 0.8);
+    color: var(--color-ink);
+    transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .glass-input:focus {
+    background-color: rgba(255, 255, 255, 0.85);
+    border-color: rgba(37, 99, 235, 0.5);
+    box-shadow:
+      0 0 0 3.5px rgba(37, 99, 235, 0.22),
+      inset 0 1px 1px 0 rgba(255, 255, 255, 0.9);
+  }
+
+  /* iOS Frosted Pills & Badges */
+  .glass-pill {
+    background-color: rgba(255, 255, 255, 0.55);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
+    backdrop-filter: blur(12px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.65);
+    box-shadow:
+      inset 0 1px 0.5px 0 rgba(255, 255, 255, 0.8),
+      0 2px 6px -1px rgba(15, 23, 42, 0.05);
+  }
+
+  /* iPhone Control Center Widget Tile */
+  .ios-widget {
+    background-color: rgba(255, 255, 255, 0.68);
+    -webkit-backdrop-filter: blur(24px) saturate(200%);
+    backdrop-filter: blur(24px) saturate(200%);
+    border: 1px solid rgba(255, 255, 255, 0.75);
+    border-radius: 24px;
+    box-shadow:
+      inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.95),
+      inset 0 -1px 0.5px 0 rgba(0, 0, 0, 0.02),
+      0 12px 32px -4px rgba(15, 23, 42, 0.06),
+      0 3px 8px -1px rgba(15, 23, 42, 0.03);
+  }
+
+  /* Apple-style glossy action button */
+  .ios-btn-primary {
+    background: linear-gradient(180deg, #1d4ed8 0%, #173eab 100%);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 14px;
+    box-shadow:
+      inset 0 1px 1px 0 rgba(255, 255, 255, 0.45),
+      0 4px 14px -1px rgba(29, 78, 216, 0.35);
+    transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .ios-btn-primary:hover {
+    background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+    box-shadow:
+      inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.55),
+      0 6px 18px -1px rgba(29, 78, 216, 0.45);
+  }
+  .ios-btn-primary:active {
+    transform: scale(0.98);
   }
 }

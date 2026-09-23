@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect, type FormEvent } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { MapPin, UploadSimple, CheckCircle, Warning, X } from "@phosphor-icons/react";
 import type { ComplaintCategory } from "../types/complaint";
 
@@ -16,9 +16,22 @@ type Step = "details" | "location" | "review" | "submitted";
 
 export default function ReportIssue() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const categoryParam = searchParams.get("category") as ComplaintCategory | null;
+
   const [step, setStep] = useState<Step>("details");
   const [title, setTitle] = useState("");
-  const [category, setCategory] = useState<ComplaintCategory | "">("");
+  const [category, setCategory] = useState<ComplaintCategory | "">(() => {
+    return categoryParam && CATEGORY_OPTIONS.some((c) => c.value === categoryParam)
+      ? categoryParam
+      : "";
+  });
+
+  useEffect(() => {
+    if (categoryParam && CATEGORY_OPTIONS.some((c) => c.value === categoryParam)) {
+      setCategory(categoryParam);
+    }
+  }, [categoryParam]);
   const [description, setDescription] = useState("");
   const [address, setAddress] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -58,24 +71,26 @@ export default function ReportIssue() {
 
   if (step === "submitted") {
     return (
-      <div className="mx-auto flex max-w-md flex-col items-center gap-4 rounded-xl border border-border bg-surface px-6 py-14 text-center">
-        <CheckCircle size={48} weight="fill" className="text-status-resolved" />
-        <h1 className="text-xl font-bold text-ink">Report submitted</h1>
+      <div className="mx-auto flex max-w-md flex-col items-center gap-4 glass-panel px-6 py-14 text-center shadow-ios-glass">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500/20 text-emerald-600 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
+          <CheckCircle size={44} weight="fill" />
+        </div>
+        <h1 className="text-2xl font-extrabold text-ink">Report submitted</h1>
         <p className="text-sm text-ink-soft">
           Your complaint has been logged and assigned reference{" "}
-          <span className="font-mono font-semibold text-ink">#CP-10482</span>. You'll get updates as it
+          <span className="font-mono font-bold text-primary">#CP-10482</span>. You'll get updates as it
           progresses.
         </p>
-        <div className="mt-2 flex gap-3">
+        <div className="mt-3 flex gap-3">
           <button
             onClick={() => navigate("/complaints")}
-            className="rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-strong"
+            className="ios-btn-primary px-5 py-2.5 text-sm font-semibold text-white shadow-md cursor-pointer"
           >
             Track this complaint
           </button>
           <button
             onClick={() => navigate("/")}
-            className="rounded-md border border-border px-4 py-2.5 text-sm font-semibold text-ink hover:bg-primary-soft/50"
+            className="rounded-xl border border-white/70 bg-white/60 px-5 py-2.5 text-sm font-semibold text-ink shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)] backdrop-blur-md hover:bg-white/90"
           >
             Back home
           </button>
@@ -86,29 +101,32 @@ export default function ReportIssue() {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <h1 className="mb-1 text-2xl font-bold tracking-tight text-ink">Report an Issue</h1>
-      <p className="mb-6 text-sm text-ink-soft">Takes about two minutes.</p>
+      <div className="mb-6 flex flex-col gap-1">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-blue-600">New Report</span>
+        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-ink">Report an Issue</h1>
+        <p className="text-sm font-medium text-ink-soft">Takes about two minutes.</p>
+      </div>
 
-      {/* Step indicator */}
-      <ol className="mb-8 flex items-center gap-2" aria-label="Progress">
+      {/* Step indicator — iOS Progress Pills */}
+      <ol className="mb-6 flex items-center gap-2" aria-label="Progress">
         {steps.map((s, i) => {
           const isActive = s.key === step;
           const isDone = steps.findIndex((x) => x.key === step) > i;
           return (
             <li key={s.key} className="flex flex-1 items-center gap-2">
               <span
-                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-xs font-bold transition-all ${
                   isDone
-                    ? "bg-status-resolved text-white"
+                    ? "bg-emerald-500 text-white shadow-[0_2px_8px_rgba(16,185,129,0.3)]"
                     : isActive
-                      ? "bg-primary text-white"
-                      : "bg-primary-soft text-primary"
+                      ? "bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-[0_2px_8px_rgba(37,99,235,0.35)]"
+                      : "border border-white/70 bg-white/60 text-ink-soft backdrop-blur-md"
                 }`}
               >
-                {isDone ? <CheckCircle size={16} weight="fill" /> : i + 1}
+                {isDone ? <CheckCircle size={16} weight="bold" /> : i + 1}
               </span>
-              <span className={`text-sm font-medium ${isActive ? "text-ink" : "text-ink-soft"}`}>{s.label}</span>
-              {i < steps.length - 1 && <span className="mx-1 h-px flex-1 bg-border" />}
+              <span className={`text-xs font-bold ${isActive ? "text-blue-700" : "text-ink-soft"}`}>{s.label}</span>
+              {i < steps.length - 1 && <span className="mx-1 h-[2px] flex-1 bg-white/60" />}
             </li>
           );
         })}
@@ -116,7 +134,7 @@ export default function ReportIssue() {
 
       {step === "details" && (
         <form
-          className="flex flex-col gap-5 rounded-xl border border-border bg-surface p-6"
+          className="flex flex-col gap-5 glass-panel p-6 sm:p-7 shadow-ios-glass"
           onSubmit={(e) => {
             e.preventDefault();
             if (validateDetails()) setStep("location");
@@ -167,10 +185,12 @@ export default function ReportIssue() {
           <Field label="Photos (optional)" htmlFor="evidence">
             <label
               htmlFor="evidence"
-              className="flex cursor-pointer flex-col items-center gap-2 rounded-md border-2 border-dashed border-border py-6 text-center hover:border-primary hover:bg-primary-soft/30"
+              className="flex cursor-pointer flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-white/70 bg-white/40 py-6 text-center backdrop-blur-sm transition-all hover:bg-white/60 hover:border-blue-400"
             >
-              <UploadSimple size={22} className="text-ink-soft" />
-              <span className="text-sm text-ink-soft">Tap to add photos as evidence</span>
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600">
+                <UploadSimple size={22} weight="bold" />
+              </div>
+              <span className="text-xs font-semibold text-ink-soft">Tap to add photos as evidence</span>
               <input
                 id="evidence"
                 type="file"
@@ -185,7 +205,7 @@ export default function ReportIssue() {
                 {files.map((f, i) => (
                   <li
                     key={i}
-                    className="flex items-center gap-1.5 rounded-full bg-primary-soft px-3 py-1 text-xs text-primary"
+                    className="flex items-center gap-1.5 rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-semibold text-primary shadow-sm backdrop-blur-md"
                   >
                     {f.name}
                     <button
@@ -193,7 +213,7 @@ export default function ReportIssue() {
                       onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}
                       aria-label={`Remove ${f.name}`}
                     >
-                      <X size={12} />
+                      <X size={12} weight="bold" />
                     </button>
                   </li>
                 ))}
@@ -203,7 +223,7 @@ export default function ReportIssue() {
 
           <button
             type="submit"
-            className="mt-2 rounded-md bg-primary py-3 text-sm font-semibold text-white transition-all hover:bg-primary-strong active:translate-y-px"
+            className="ios-btn-primary mt-2 py-3 text-sm font-semibold text-white shadow-md cursor-pointer"
           >
             Continue to Location
           </button>
@@ -212,15 +232,15 @@ export default function ReportIssue() {
 
       {step === "location" && (
         <form
-          className="flex flex-col gap-5 rounded-xl border border-border bg-surface p-6"
+          className="flex flex-col gap-5 glass-panel p-6 sm:p-7 shadow-ios-glass"
           onSubmit={(e) => {
             e.preventDefault();
             if (validateLocation()) setStep("review");
           }}
           noValidate
         >
-          <div className="flex h-48 items-center justify-center rounded-md border border-border bg-bg text-sm text-ink-soft">
-            <MapPin size={18} className="mr-2 text-primary" /> Map picker — tap to drop a pin
+          <div className="flex h-48 items-center justify-center rounded-2xl border border-white/60 bg-white/40 text-sm font-medium text-ink-soft backdrop-blur-sm shadow-[inset_0_1px_1px_rgba(255,255,255,0.7)]">
+            <MapPin size={20} weight="fill" className="mr-2 text-primary" /> Map picker — tap to drop a pin
           </div>
 
           <Field label="Address" htmlFor="address" error={errors.address}>
@@ -237,13 +257,13 @@ export default function ReportIssue() {
             <button
               type="button"
               onClick={() => setStep("details")}
-              className="flex-1 rounded-md border border-border py-3 text-sm font-semibold text-ink hover:bg-primary-soft/50"
+              className="flex-1 rounded-xl border border-white/70 bg-white/60 py-3 text-sm font-semibold text-ink shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)] backdrop-blur-md hover:bg-white/90"
             >
               Back
             </button>
             <button
               type="submit"
-              className="flex-1 rounded-md bg-primary py-3 text-sm font-semibold text-white hover:bg-primary-strong active:translate-y-px"
+              className="ios-btn-primary flex-1 py-3 text-sm font-semibold text-white shadow-md cursor-pointer"
             >
               Review
             </button>
@@ -253,17 +273,19 @@ export default function ReportIssue() {
 
       {step === "review" && (
         <form
-          className="flex flex-col gap-5 rounded-xl border border-border bg-surface p-6"
+          className="flex flex-col gap-5 glass-panel p-6 sm:p-7 shadow-ios-glass"
           onSubmit={handleSubmit}
         >
-          <SummaryRow label="Title" value={title} />
-          <SummaryRow label="Category" value={CATEGORY_OPTIONS.find((c) => c.value === category)?.label ?? "—"} />
-          <SummaryRow label="Description" value={description} />
-          <SummaryRow label="Address" value={address} />
-          <SummaryRow label="Photos" value={files.length ? `${files.length} attached` : "None"} />
+          <div className="flex flex-col gap-3 rounded-2xl border border-white/60 bg-white/40 p-5 backdrop-blur-sm shadow-[inset_0_1px_0.5px_rgba(255,255,255,0.7)]">
+            <SummaryRow label="Title" value={title} />
+            <SummaryRow label="Category" value={CATEGORY_OPTIONS.find((c) => c.value === category)?.label ?? "—"} />
+            <SummaryRow label="Description" value={description} />
+            <SummaryRow label="Address" value={address} />
+            <SummaryRow label="Photos" value={files.length ? `${files.length} attached` : "None"} />
+          </div>
 
-          <div className="flex items-start gap-2 rounded-md bg-primary-soft/50 px-3 py-2.5 text-xs text-ink-soft">
-            <Warning size={16} className="mt-0.5 shrink-0 text-primary" />
+          <div className="flex items-start gap-2.5 rounded-xl border border-blue-500/20 bg-blue-500/10 px-3.5 py-2.5 text-xs text-ink-soft backdrop-blur-md">
+            <Warning size={16} weight="fill" className="mt-0.5 shrink-0 text-primary" />
             Submitting a false or misleading report may result in your account being restricted.
           </div>
 
@@ -271,14 +293,14 @@ export default function ReportIssue() {
             <button
               type="button"
               onClick={() => setStep("location")}
-              className="flex-1 rounded-md border border-border py-3 text-sm font-semibold text-ink hover:bg-primary-soft/50"
+              className="flex-1 rounded-xl border border-white/70 bg-white/60 py-3 text-sm font-semibold text-ink shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)] backdrop-blur-md hover:bg-white/90"
             >
               Back
             </button>
             <button
               type="submit"
               disabled={submitting}
-              className="flex-1 rounded-md bg-primary py-3 text-sm font-semibold text-white hover:bg-primary-strong active:translate-y-px disabled:opacity-60"
+              className="ios-btn-primary flex-1 py-3 text-sm font-semibold text-white shadow-md disabled:opacity-60 cursor-pointer"
             >
               {submitting ? "Submitting…" : "Submit Report"}
             </button>
@@ -304,14 +326,14 @@ function Field({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <label htmlFor={htmlFor} className="text-sm font-medium text-ink">
+      <label htmlFor={htmlFor} className="text-xs font-bold text-ink">
         {label}
       </label>
       {children}
-      {helper && !error && <span className="text-xs text-ink-soft">{helper}</span>}
+      {helper && !error && <span className="text-[11px] text-ink-soft">{helper}</span>}
       {error && (
-        <span className="flex items-center gap-1 text-xs font-medium text-status-rejected">
-          <Warning size={12} /> {error}
+        <span className="flex items-center gap-1 text-xs font-semibold text-rose-600">
+          <Warning size={13} weight="fill" /> {error}
         </span>
       )}
     </div>
@@ -320,15 +342,15 @@ function Field({
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex flex-col gap-0.5 border-b border-border pb-3 last:border-0 last:pb-0">
-      <span className="text-xs font-medium uppercase tracking-wide text-ink-soft">{label}</span>
-      <span className="text-sm text-ink">{value || "—"}</span>
+    <div className="flex flex-col gap-0.5 border-b border-white/50 pb-2.5 last:border-0 last:pb-0">
+      <span className="text-[10px] font-bold uppercase tracking-wider text-ink-soft/80">{label}</span>
+      <span className="text-sm font-medium text-ink">{value || "—"}</span>
     </div>
   );
 }
 
 function inputClass(hasError: boolean) {
-  return `w-full rounded-md border bg-surface px-3 py-2.5 text-sm text-ink focus:border-primary ${
-    hasError ? "border-status-rejected" : "border-border"
+  return `glass-input w-full px-3.5 py-2.5 text-sm ${
+    hasError ? "!border-rose-500 !ring-2 !ring-rose-400/30" : ""
   }`;
 }

@@ -1,5 +1,5 @@
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, MapPin, User, CheckCircle, Circle } from "@phosphor-icons/react";
+import { ArrowLeft, MapPin, User, CheckCircle, Circle, Image as ImageIcon, Clock } from "@phosphor-icons/react";
 import { StatusBadge } from "../components/StatusBadge";
 import type { Complaint } from "../types/complaint";
 
@@ -28,53 +28,97 @@ export default function ComplaintDetails() {
   const complaint = MOCK; // TODO: fetch by id
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <Link to="/complaints" className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-ink-soft hover:text-ink">
-        <ArrowLeft size={16} /> Back to My Complaints
+    <div className="mx-auto max-w-2xl space-y-6">
+      {/* Back Button */}
+      <Link
+        to="/complaints"
+        className="glass-pill inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold text-ink-soft hover:text-ink border border-white/60 bg-white/40 shadow-sm backdrop-blur-md transition-all active:scale-95"
+      >
+        <ArrowLeft size={14} weight="bold" /> Back to My Complaints
       </Link>
 
-      <div className="mb-6 rounded-xl border border-border bg-surface p-6">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <span className="font-mono text-xs text-ink-soft">#{id ?? complaint.id}</span>
+      {/* Main Details Card */}
+      <div className="glass-panel rounded-ios-2xl p-6 sm:p-7 shadow-ios-glass border border-white/70">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <span className="font-mono text-xs font-bold text-ink-soft/80 bg-white/50 border border-white/70 px-2.5 py-1 rounded-lg backdrop-blur-sm">
+            #{id ?? complaint.id}
+          </span>
           <StatusBadge status={complaint.status} />
         </div>
-        <h1 className="mb-2 text-xl font-bold tracking-tight text-ink">{complaint.title}</h1>
-        <p className="mb-4 text-sm text-ink-soft">{complaint.description}</p>
 
-        <div className="grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
-          <InfoRow icon={MapPin} label="Location" value={complaint.location.address} />
-          <InfoRow icon={User} label="Assigned to" value={complaint.assignedOfficer ?? "Not yet assigned"} />
+        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-ink font-display mb-2">
+          {complaint.title}
+        </h1>
+        <p className="text-sm text-ink-soft leading-relaxed mb-6">
+          {complaint.description}
+        </p>
+
+        {/* Squircle Inset Info Tiles */}
+        <div className="grid gap-3 sm:grid-cols-2 pt-2 border-t border-white/40">
+          <InfoTile icon={MapPin} label="Location" value={complaint.location.address} />
+          <InfoTile icon={User} label="Assigned Officer" value={complaint.assignedOfficer ?? "Pending assignment"} />
         </div>
 
+        {/* Evidence Photos */}
         {complaint.evidence.length > 0 && (
-          <div className="mt-4 flex gap-2 border-t border-border pt-4">
-            {complaint.evidence.map((e) => (
-              <div key={e.id} className="flex h-16 w-16 items-center justify-center rounded-md bg-bg text-xs text-ink-soft">
-                Photo
-              </div>
-            ))}
+          <div className="mt-5 border-t border-white/40 pt-4">
+            <span className="text-xs font-semibold text-ink-soft uppercase tracking-wider block mb-2.5">
+              Attached Evidence ({complaint.evidence.length})
+            </span>
+            <div className="flex gap-3">
+              {complaint.evidence.map((e) => (
+                <div
+                  key={e.id}
+                  className="flex h-20 w-24 flex-col items-center justify-center gap-1 rounded-ios-xl border border-white/70 bg-white/40 backdrop-blur-sm text-ink-soft hover:border-primary/60 hover:bg-white/60 transition-all shadow-sm cursor-pointer"
+                >
+                  <ImageIcon size={22} className="text-primary/70" />
+                  <span className="text-[11px] font-semibold text-ink">Photo Evidence</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
 
-      <div className="rounded-xl border border-border bg-surface p-6">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-ink-soft">Timeline</h2>
-        <ol className="flex flex-col gap-5">
+      {/* iOS Activity Timeline Card */}
+      <div className="glass-panel rounded-ios-2xl p-6 sm:p-7 shadow-ios-glass border border-white/70">
+        <div className="flex items-center gap-2 mb-5">
+          <Clock size={18} className="text-primary" weight="duotone" />
+          <h2 className="text-sm font-bold uppercase tracking-wider text-ink">
+            Activity & Resolution Timeline
+          </h2>
+        </div>
+
+        <ol className="flex flex-col gap-6">
           {complaint.timeline.map((event, i) => {
             const isLast = i === complaint.timeline.length - 1;
             return (
-              <li key={event.id} className="relative flex gap-3 pb-1">
-                {!isLast && <span className="absolute left-[9px] top-6 h-full w-px bg-border" aria-hidden="true" />}
-                {isLast ? (
-                  <Circle size={20} weight="fill" className="shrink-0 text-primary" />
-                ) : (
-                  <CheckCircle size={20} weight="fill" className="shrink-0 text-status-resolved" />
+              <li key={event.id} className="relative flex gap-3.5">
+                {!isLast && (
+                  <span
+                    className="absolute left-[11px] top-6 h-full w-0.5 bg-gradient-to-b from-primary/50 to-blue-200"
+                    aria-hidden="true"
+                  />
                 )}
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-sm font-medium text-ink">{event.note}</span>
-                  <span className="text-xs text-ink-soft">
-                    {event.actor} · {new Date(event.timestamp).toLocaleString()}
-                  </span>
+                <div className="relative z-10 flex h-6 w-6 shrink-0 items-center justify-center">
+                  {isLast ? (
+                    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500 shadow-[0_0_12px_rgba(37,99,235,0.7)] ring-4 ring-blue-100">
+                      <Circle size={10} weight="fill" className="text-white animate-pulse" />
+                    </div>
+                  ) : (
+                    <CheckCircle size={22} weight="fill" className="shrink-0 text-emerald-500 shadow-sm" />
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-1 -mt-0.5">
+                  <span className="text-sm font-semibold text-ink leading-tight">{event.note}</span>
+                  <div className="flex items-center gap-2 text-xs text-ink-soft">
+                    <span className="font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200/50">
+                      {event.actor}
+                    </span>
+                    <span>·</span>
+                    <span>{new Date(event.timestamp).toLocaleString()}</span>
+                  </div>
                 </div>
               </li>
             );
@@ -85,13 +129,15 @@ export default function ComplaintDetails() {
   );
 }
 
-function InfoRow({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string }) {
+function InfoTile({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string }) {
   return (
-    <div className="flex items-start gap-2">
-      <Icon size={16} className="mt-0.5 shrink-0 text-primary" />
-      <div className="flex flex-col">
-        <span className="text-xs text-ink-soft">{label}</span>
-        <span className="text-sm text-ink">{value}</span>
+    <div className="flex items-start gap-3 rounded-ios-xl border border-white/50 bg-white/30 p-3 backdrop-blur-sm">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-primary border border-blue-400/20 shadow-sm">
+        <Icon size={18} weight="duotone" />
+      </div>
+      <div className="flex flex-col min-w-0">
+        <span className="text-[11px] font-semibold text-ink-soft uppercase tracking-wider">{label}</span>
+        <span className="text-xs sm:text-sm font-semibold text-ink truncate">{value}</span>
       </div>
     </div>
   );

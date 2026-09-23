@@ -52,35 +52,50 @@ export default function ComplaintReview() {
   }
 
   return (
-    <div>
-      <Link to="/officer/complaints" className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-ink-soft hover:text-ink">
-        <ArrowLeft size={16} /> Back to Queue
-      </Link>
+    <div className="flex flex-col gap-5">
+      <div>
+        <Link
+          to="/officer/complaints"
+          className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/50 px-3.5 py-1.5 text-xs font-semibold text-ink-soft shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)] backdrop-blur-md transition-all hover:bg-white/80 hover:text-ink"
+        >
+          <ArrowLeft size={14} weight="bold" /> Back to Queue
+        </Link>
+      </div>
 
       <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
         {/* Main details */}
         <div className="flex flex-col gap-5">
-          <div className="rounded-xl border border-border bg-surface p-6">
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <span className="font-mono text-xs text-ink-soft">#{id ?? complaint.id}</span>
+          <div className="glass-panel p-6">
+            <div className="mb-3.5 flex flex-wrap items-center gap-2">
+              <span className="rounded-md bg-primary-soft/60 px-2 py-0.5 font-mono text-xs font-bold text-primary">
+                #{id ?? complaint.id}
+              </span>
               <StatusBadge status={complaint.status} />
               <PriorityTag priority={complaint.priority} />
             </div>
-            <h1 className="mb-2 text-xl font-bold tracking-tight text-ink">{complaint.title}</h1>
-            <p className="mb-4 text-sm text-ink-soft">{complaint.description}</p>
+            <h1 className="mb-2.5 text-2xl font-bold tracking-tight text-ink">{complaint.title}</h1>
+            <p className="mb-5 text-sm leading-relaxed text-ink-soft">{complaint.description}</p>
 
-            <div className="grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
-              <InfoRow icon={MapPin} label="Location" value={`${complaint.location.address} · ${complaint.location.ward}`} />
-              <InfoRow icon={User} label="Reported by" value={complaint.citizenName} />
+            <div className="grid gap-3.5 border-t border-white/50 pt-5 sm:grid-cols-2">
+              <div className="rounded-xl border border-white/60 bg-white/40 p-3.5 backdrop-blur-sm shadow-[inset_0_1px_0.5px_rgba(255,255,255,0.7)]">
+                <InfoRow icon={MapPin} label="Location" value={`${complaint.location.address} · ${complaint.location.ward}`} />
+              </div>
+              <div className="rounded-xl border border-white/60 bg-white/40 p-3.5 backdrop-blur-sm shadow-[inset_0_1px_0.5px_rgba(255,255,255,0.7)]">
+                <InfoRow icon={User} label="Reported by" value={complaint.citizenName} />
+              </div>
             </div>
 
             {complaint.evidence.length > 0 && (
-              <div className="mt-4 border-t border-border pt-4">
-                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-soft">Evidence</p>
-                <div className="flex gap-2">
+              <div className="mt-5 border-t border-white/50 pt-5">
+                <p className="mb-2.5 text-[11px] font-bold uppercase tracking-wider text-ink-soft">Attached Evidence</p>
+                <div className="flex gap-3">
                   {complaint.evidence.map((e) => (
-                    <div key={e.id} className="flex h-20 w-20 items-center justify-center rounded-md bg-bg text-xs text-ink-soft">
-                      Photo
+                    <div
+                      key={e.id}
+                      className="flex h-24 w-24 flex-col items-center justify-center rounded-2xl border border-white/70 bg-white/50 text-xs font-medium text-ink-soft shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)] backdrop-blur-md"
+                    >
+                      <span className="text-xl">📸</span>
+                      <span className="mt-1 text-[11px]">Photo 1</span>
                     </div>
                   ))}
                 </div>
@@ -88,22 +103,34 @@ export default function ComplaintReview() {
             )}
           </div>
 
-          <div className="rounded-xl border border-border bg-surface p-6">
-            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-ink-soft">Timeline</h2>
-            <ol className="flex flex-col gap-5">
+          <div className="glass-panel p-6">
+            <div className="mb-5 flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-blue-600" />
+              <h2 className="text-xs font-bold uppercase tracking-wider text-ink-soft">Activity Timeline</h2>
+            </div>
+            <ol className="flex flex-col gap-6">
               {complaint.timeline.map((event, i) => {
                 const isLast = i === complaint.timeline.length - 1;
                 return (
-                  <li key={event.id} className="relative flex gap-3 pb-1">
-                    {!isLast && <span className="absolute left-[9px] top-6 h-full w-px bg-border" aria-hidden="true" />}
-                    {isLast ? (
-                      <Circle size={20} weight="fill" className="shrink-0 text-primary" />
-                    ) : (
-                      <CheckCircle size={20} weight="fill" className="shrink-0 text-status-resolved" />
+                  <li key={event.id} className="relative flex gap-4 pb-1">
+                    {!isLast && (
+                      <span
+                        className="absolute left-[11px] top-6 h-full w-[2px] bg-gradient-to-b from-blue-500/40 to-white/40"
+                        aria-hidden="true"
+                      />
                     )}
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-sm font-medium text-ink">{event.note}</span>
-                      <span className="text-xs text-ink-soft">
+                    {isLast ? (
+                      <span className="relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-500/20 shadow-[0_0_10px_rgba(37,99,235,0.4)]">
+                        <Circle size={14} weight="fill" className="text-blue-600" />
+                      </span>
+                    ) : (
+                      <span className="relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.3)]">
+                        <CheckCircle size={16} weight="fill" className="text-emerald-600" />
+                      </span>
+                    )}
+                    <div className="flex flex-1 flex-col rounded-xl border border-white/50 bg-white/35 p-3 backdrop-blur-sm shadow-[inset_0_1px_0.5px_rgba(255,255,255,0.6)]">
+                      <span className="text-sm font-semibold text-ink">{event.note}</span>
+                      <span className="mt-0.5 text-xs text-ink-soft">
                         {event.actor} · {new Date(event.timestamp).toLocaleString()}
                       </span>
                     </div>
@@ -116,57 +143,77 @@ export default function ComplaintReview() {
 
         {/* Action panel */}
         <div className="flex flex-col gap-5">
-          <div className="rounded-xl border border-border bg-surface p-5">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-soft">Update Status</h2>
+          <div className="glass-panel p-5">
+            <div className="mb-4 flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-primary" />
+              <h2 className="text-xs font-bold uppercase tracking-wider text-ink-soft">Update Status</h2>
+            </div>
 
             {saved && (
-              <div className="mb-3 flex items-center gap-2 rounded-md bg-status-resolved-bg px-3 py-2 text-sm text-status-resolved">
-                <CheckCircle size={16} /> Status updated
+              <div className="mb-4 flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/20 px-3.5 py-2.5 text-xs font-semibold text-emerald-800 backdrop-blur-md shadow-[inset_0_1px_0.5px_rgba(255,255,255,0.6)]">
+                <CheckCircle size={16} weight="bold" /> Status updated successfully
               </div>
             )}
 
-            <div className="mb-3 flex flex-col gap-1.5">
-              <label htmlFor="status" className="text-sm font-medium text-ink">Status</label>
+            <div className="mb-3.5 flex flex-col gap-1.5">
+              <label htmlFor="status" className="text-xs font-semibold text-ink">
+                Status
+              </label>
               <select
                 id="status"
                 value={newStatus}
                 onChange={(e) => setNewStatus(e.target.value as ComplaintStatus)}
-                className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-ink focus:border-primary"
+                className="glass-input w-full px-3 py-2 text-sm font-medium"
               >
                 {STATUS_OPTIONS.map((s) => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
                 ))}
               </select>
             </div>
 
             <div className="mb-4 flex flex-col gap-1.5">
-              <label htmlFor="note" className="text-sm font-medium text-ink">Note (visible to citizen)</label>
+              <label htmlFor="note" className="text-xs font-semibold text-ink">
+                Note (visible to citizen)
+              </label>
               <textarea
                 id="note"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 rows={3}
                 placeholder="e.g. Repair crew dispatched, expected completion Friday"
-                className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-ink focus:border-primary"
+                className="glass-input w-full px-3 py-2 text-sm"
               />
             </div>
 
             <button
               onClick={handleUpdate}
               disabled={saving}
-              className="w-full rounded-md bg-primary py-2.5 text-sm font-semibold text-white transition-all hover:bg-primary-strong active:translate-y-px disabled:opacity-60"
+              className="ios-btn-primary w-full py-2.5 text-sm font-semibold text-white disabled:opacity-60 cursor-pointer"
             >
               {saving ? "Updating…" : "Update Status"}
             </button>
           </div>
 
-          <div className="rounded-xl border border-border bg-surface p-5">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-soft">Citizen Contact</h2>
-            <div className="flex items-center gap-2 text-sm text-ink">
-              <User size={16} className="text-primary" /> {complaint.citizenName}
+          <div className="glass-panel p-5">
+            <div className="mb-3.5 flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-blue-500" />
+              <h2 className="text-xs font-bold uppercase tracking-wider text-ink-soft">Citizen Contact</h2>
             </div>
-            <div className="mt-2 flex items-center gap-2 text-sm text-ink-soft">
-              <Phone size={16} className="text-primary" /> +91 98765 43210
+            <div className="flex flex-col gap-2.5">
+              <div className="flex items-center gap-2.5 rounded-xl border border-white/50 bg-white/40 p-2.5 text-sm font-medium text-ink backdrop-blur-sm">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/15 text-blue-600">
+                  <User size={16} weight="bold" />
+                </div>
+                <span>{complaint.citizenName}</span>
+              </div>
+              <div className="flex items-center gap-2.5 rounded-xl border border-white/50 bg-white/40 p-2.5 text-sm font-medium text-ink-soft backdrop-blur-sm">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-600">
+                  <Phone size={16} weight="bold" />
+                </div>
+                <span>+91 98765 43210</span>
+              </div>
             </div>
           </div>
         </div>
@@ -177,11 +224,13 @@ export default function ComplaintReview() {
 
 function InfoRow({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string }) {
   return (
-    <div className="flex items-start gap-2">
-      <Icon size={16} className="mt-0.5 shrink-0 text-primary" />
+    <div className="flex items-start gap-2.5">
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <Icon size={16} weight="bold" />
+      </div>
       <div className="flex flex-col">
-        <span className="text-xs text-ink-soft">{label}</span>
-        <span className="text-sm text-ink">{value}</span>
+        <span className="text-[11px] font-semibold text-ink-soft">{label}</span>
+        <span className="text-sm font-medium text-ink">{value}</span>
       </div>
     </div>
   );

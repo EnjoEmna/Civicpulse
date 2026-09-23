@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { MagnifyingGlass, FileText } from "@phosphor-icons/react";
+import { MagnifyingGlass, FileText, MapPin, Clock, CaretRight, Plus } from "@phosphor-icons/react";
 import { StatusBadge } from "../components/StatusBadge";
 import type { Complaint, ComplaintStatus } from "../types/complaint";
 
@@ -64,42 +64,61 @@ export default function MyComplaints() {
   });
 
   return (
-    <div>
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold tracking-tight text-ink">My Complaints</h1>
-        <div className="relative w-full sm:w-64">
-          <MagnifyingGlass size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-soft" />
+    <div className="space-y-6">
+      {/* Header & Spotlight Search */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-ink font-display">My Complaints</h1>
+          <p className="text-xs font-medium text-ink-soft mt-0.5">
+            Track and monitor resolution progress on your submitted reports
+          </p>
+        </div>
+        <div className="relative w-full sm:w-72">
+          <MagnifyingGlass size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-soft/70" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by title or ID"
-            className="w-full rounded-md border border-border bg-surface py-2 pl-9 pr-3 text-sm text-ink focus:border-primary"
+            placeholder="Spotlight search by title or ID"
+            className="glass-input w-full rounded-ios-xl py-2 pl-9 pr-4 text-xs font-medium text-ink placeholder:text-ink-soft/60 focus:outline-none"
             aria-label="Search complaints"
           />
         </div>
       </div>
 
-      <div className="mb-5 flex flex-wrap gap-2" role="tablist" aria-label="Filter by status">
-        {FILTERS.map((f) => (
-          <button
-            key={f.key}
-            role="tab"
-            aria-selected={filter === f.key}
-            onClick={() => setFilter(f.key)}
-            className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
-              filter === f.key ? "bg-primary text-white" : "bg-surface text-ink-soft border border-border hover:bg-primary-soft/50"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
+      {/* iOS Segmented Control Dock */}
+      <div className="glass-pill inline-flex flex-wrap items-center gap-1 rounded-full p-1 border border-white/60 bg-white/40 shadow-sm backdrop-blur-md" role="tablist" aria-label="Filter by status">
+        {FILTERS.map((f) => {
+          const isActive = filter === f.key;
+          return (
+            <button
+              key={f.key}
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => setFilter(f.key)}
+              className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-all duration-200 ${
+                isActive
+                  ? "bg-primary text-white shadow-[0_2px_8px_rgba(37,99,235,0.35),inset_0_1px_0.5px_rgba(255,255,255,0.4)]"
+                  : "text-ink-soft hover:text-ink hover:bg-white/40"
+              }`}
+            >
+              {f.label}
+            </button>
+          );
+        })}
       </div>
 
+      {/* Complaint Cards or Empty State */}
       {filtered.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border bg-surface px-6 py-16 text-center">
-          <FileText size={32} className="text-ink-soft" />
-          <p className="text-sm font-medium text-ink">No complaints match your filters</p>
-          <Link to="/report" className="text-sm font-medium text-primary hover:underline">
+        <div className="glass-panel rounded-ios-2xl border-dashed border-white/60 px-6 py-16 text-center flex flex-col items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/60 text-ink-soft border border-white/70 shadow-sm">
+            <FileText size={28} />
+          </div>
+          <p className="text-base font-semibold text-ink">No complaints match your filters</p>
+          <p className="text-xs text-ink-soft max-w-sm">
+            Try adjusting your search criteria or submit a new grievance for municipal assistance.
+          </p>
+          <Link to="/report" className="ios-btn-primary mt-2 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white shadow-md">
+            <Plus size={14} weight="bold" />
             Report a new issue
           </Link>
         </div>
@@ -109,19 +128,38 @@ export default function MyComplaints() {
             <li key={c.id}>
               <Link
                 to={`/complaints/${c.id}`}
-                className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4 transition-colors hover:border-primary sm:flex-row sm:items-center sm:justify-between"
+                className="glass-panel group relative block rounded-ios-2xl p-5 sm:p-6 border border-white/70 shadow-ios-glass transition-all duration-200 hover:shadow-ios-glass-hover hover:border-white active:scale-[0.995]"
               >
-                <div className="flex flex-col gap-1">
+                {/* Top Row: Tracking ID + Status on left, Updated Date on right */}
+                <div className="flex items-center justify-between gap-3 mb-2.5">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs text-ink-soft">#{c.id}</span>
+                    <span className="font-mono text-xs font-bold text-ink-soft/90 bg-white/60 border border-white/80 px-2.5 py-0.5 rounded-md backdrop-blur-sm shadow-xs">
+                      #{c.id}
+                    </span>
                     <StatusBadge status={c.status} />
                   </div>
-                  <span className="font-semibold text-ink">{c.title}</span>
-                  <span className="text-sm text-ink-soft">{c.location.address}</span>
+                  <div className="flex items-center gap-1.5 text-xs text-ink-soft shrink-0">
+                    <Clock size={13} className="text-ink-soft/70" />
+                    <span>Updated {new Date(c.updatedAt).toLocaleDateString()}</span>
+                  </div>
                 </div>
-                <span className="text-xs text-ink-soft sm:text-right">
-                  Updated {new Date(c.updatedAt).toLocaleDateString()}
-                </span>
+
+                {/* Middle Row: Title */}
+                <h2 className="text-base sm:text-lg font-bold text-ink group-hover:text-primary transition-colors tracking-tight mb-3">
+                  {c.title}
+                </h2>
+
+                {/* Bottom Row: Address on left, View Details on right */}
+                <div className="flex items-center justify-between gap-4 pt-2.5 border-t border-white/40 text-xs text-ink-soft">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <MapPin size={15} className="text-primary shrink-0" />
+                    <span className="truncate">{c.location.address}</span>
+                  </div>
+                  <div className="inline-flex items-center gap-1 font-semibold text-primary shrink-0 group-hover:translate-x-0.5 transition-transform">
+                    <span>View details</span>
+                    <CaretRight size={13} weight="bold" />
+                  </div>
+                </div>
               </Link>
             </li>
           ))}

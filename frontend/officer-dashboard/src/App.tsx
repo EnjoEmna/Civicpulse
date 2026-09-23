@@ -7,6 +7,13 @@ import ComplaintReview from "./pages/ComplaintReview";
 import IssueMap from "./pages/IssueMap";
 
 function isAuthenticated() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get("token");
+  if (token) {
+    localStorage.setItem("cp_officer_token", token);
+    window.history.replaceState({}, document.title, window.location.pathname);
+    return true;
+  }
   return Boolean(localStorage.getItem("cp_officer_token"));
 }
 
