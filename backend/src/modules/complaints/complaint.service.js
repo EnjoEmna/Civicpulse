@@ -3,23 +3,24 @@ const { canReadComplaint } = require("./complaint.policy");
 const { canTransition } = require("./complaint.workflow");
 
 const GeminiEmbeddingProvider = require("../intelligence/understand/gemini.embedding");
-
 const {
   saveEmbedding,
 } = require("../../repositories/complaint-embedding.repository");
 
-const embeddingProvider = new GeminiEmbeddingProvider();
-
 const pool = require("../../config/database");
+
+const embeddingProvider = new GeminiEmbeddingProvider();
 
 async function createComplaint({
   citizenId,
+  title,
   description,
   category,
+  address,
   latitude,
   longitude,
 }) {
-  // Generate the embedding before starting the DB transaction.
+  // Generate the embedding before opening the database transaction.
   const embedding = await embeddingProvider.generateEmbedding(description);
 
   const client = await pool.connect();
@@ -29,8 +30,10 @@ async function createComplaint({
 
     const complaint = await complaintRepository.createComplaint({
       citizenId,
+      title,
       description,
       category,
+      address,
       latitude,
       longitude,
       db: client,
@@ -62,7 +65,6 @@ async function getComplaintById(id, user) {
     const error = new Error("Complaint not found");
     error.statusCode = 404;
     error.code = "COMPLAINT_NOT_FOUND";
-
     throw error;
   }
 
@@ -72,11 +74,18 @@ async function getComplaintById(id, user) {
     );
     error.statusCode = 403;
     error.code = "FORBIDDEN";
-
     throw error;
   }
 
   return complaint;
+}
+
+async function getMyComplaints(citizenId) {
+  return complaintRepository.findComplaintsByCitizenId(citizenId);
+}
+
+async function getAllComplaints(filters) {
+  return complaintRepository.findAllComplaints(filters);
 }
 
 async function updateComplaintStatus(id, newStatus) {
@@ -86,7 +95,6 @@ async function updateComplaintStatus(id, newStatus) {
     const error = new Error("Complaint not found");
     error.statusCode = 404;
     error.code = "COMPLAINT_NOT_FOUND";
-
     throw error;
   }
 
@@ -96,7 +104,6 @@ async function updateComplaintStatus(id, newStatus) {
     );
     error.statusCode = 409;
     error.code = "INVALID_STATUS_TRANSITION";
-
     throw error;
   }
 
@@ -106,5 +113,7 @@ async function updateComplaintStatus(id, newStatus) {
 module.exports = {
   createComplaint,
   getComplaintById,
+  getMyComplaints,
   updateComplaintStatus,
+  getAllComplaints,
 };

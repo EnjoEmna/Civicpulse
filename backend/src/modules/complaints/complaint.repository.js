@@ -2,38 +2,46 @@ const pool = require("../../config/database");
 
 async function createComplaint({
   citizenId,
+  title,
   description,
   category,
+  address,
   latitude,
   longitude,
   db = pool,
 }) {
   const result = await db.query(
-    `INSERT INTO complaints (
-      citizen_id,
-      description,
-      category,
-      latitude,
-      longitude
-    )
-    VALUES ($1, $2, $3, $4, $5)
-    RETURNING
-      id,
-      citizen_id,
-      description,
-      category,
-      status,
-      priority,
-      latitude,
-      longitude,
-      created_at`,
-    [
-      citizenId,
-      description,
-      category || null,
-      latitude ?? null,
-      longitude ?? null,
-    ],
+    `
+INSERT INTO complaints (
+  citizen_id,
+  title,
+  description,
+  category,
+  address,
+  latitude,
+  longitude,
+  location
+)
+VALUES (
+  $1, $2, $3, $4, $5, $6, $7,
+  ST_SetSRID(ST_MakePoint($7, $6), 4326)::geography
+)
+RETURNING
+  id,
+  reference_id,
+  citizen_id,
+  title,
+  description,
+  category,
+  address,
+  status,
+  priority,
+  latitude,
+  longitude,
+  created_at,
+  updated_at
+`,
+    [citizenId, title, description, category, address, latitude, longitude],
   );
 
   return result.rows[0];
@@ -43,9 +51,12 @@ async function findComplaintById(id) {
   const result = await pool.query(
     `SELECT
        id,
+       reference_id,
        citizen_id,
+       title,
        description,
        category,
+       address,
        status,
        priority,
        latitude,
@@ -60,16 +71,45 @@ async function findComplaintById(id) {
   return result.rows[0] || null;
 }
 
+async function findComplaintsByCitizenId(citizenId) {
+  const result = await pool.query(
+    `SELECT
+       id,
+       reference_id,
+       citizen_id,
+       title,
+       description,
+       category,
+       address,
+       status,
+       priority,
+       latitude,
+       longitude,
+       created_at,
+       updated_at
+     FROM complaints
+     WHERE citizen_id = $1
+     ORDER BY created_at DESC`,
+    [citizenId],
+  );
+
+  return result.rows;
+}
+
 async function updateComplaintStatus(id, status) {
   const result = await pool.query(
     `UPDATE complaints
-      SET status = $1
-      WHERE id = $2
+     SET status = $1,
+         updated_at = NOW()
+     WHERE id = $2
      RETURNING
        id,
+       reference_id,
        citizen_id,
+       title,
        description,
        category,
+       address,
        status,
        priority,
        latitude,
@@ -80,6 +120,56 @@ async function updateComplaintStatus(id, status) {
   );
 
   return result.rows[0] || null;
+}
+
+async function findAllComplaints({ status, category, query } = {}) {
+  const conditions = [];
+  const values = [];
+
+  if (status) {
+    values.push(status);
+    conditions.push(`status = $${values.length}`);
+  }
+
+  if (category) {
+    values.push(category);
+    conditions.push(`category = $${values.length}`);
+  }
+
+  if (query) {
+    values.push(`%${query}%`);
+    const index = values.length;
+    conditions.push(
+      `(title ILIKE $${index} OR description ILIKE $${index} OR reference_id ILIKE $${index})`,
+    );
+  }
+
+  const whereClause = conditions.length
+    ? `WHERE ${conditions.join(" AND ")}`
+    : "";
+
+  const result = await pool.query(
+    `SELECT
+       id,
+       reference_id,
+       citizen_id,
+       title,
+       description,
+       category,
+       address,
+       status,
+       priority,
+       latitude,
+       longitude,
+       created_at,
+       updated_at
+     FROM complaints
+     ${whereClause}
+     ORDER BY created_at DESC`,
+    values,
+  );
+
+  return result.rows;
 }
 
 async function complaintExists(id) {
@@ -96,6 +186,8 @@ async function complaintExists(id) {
 module.exports = {
   createComplaint,
   findComplaintById,
+  findComplaintsByCitizenId,
   updateComplaintStatus,
   complaintExists,
+  findAllComplaints,
 };

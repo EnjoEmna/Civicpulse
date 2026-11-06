@@ -1,11 +1,29 @@
 import { NavLink, useLocation, useOutlet } from "react-router-dom";
-import { SquaresFour, ClipboardText, MapTrifold, SignOut, Bell } from "@phosphor-icons/react";
+import {
+  SquaresFour,
+  ClipboardText,
+  MapTrifold,
+  SignOut,
+  Bell,
+  Brain,
+} from "@phosphor-icons/react";
 import { AnimatePresence, motion } from "framer-motion";
 
 const NAV_ITEMS = [
   { to: "/officer", label: "Dashboard", icon: SquaresFour, end: true },
-  { to: "/officer/complaints", label: "Complaint Queue", icon: ClipboardText, end: false },
+  {
+    to: "/officer/complaints",
+    label: "Complaint Queue",
+    icon: ClipboardText,
+    end: false,
+  },
   { to: "/officer/map", label: "Issue Map", icon: MapTrifold, end: false },
+  {
+    to: "/officer/spatial-intelligence",
+    label: "Spatial Intelligence",
+    icon: Brain,
+    end: false,
+  },
 ];
 
 export function Layout() {
@@ -26,13 +44,19 @@ export function Layout() {
             CP
           </div>
           <div className="leading-tight">
-            <p className="text-sm font-bold tracking-tight text-white">CivicPulse</p>
-            <p className="text-[11px] font-medium text-blue-200/70">First Officer Console</p>
+            <p className="text-sm font-bold tracking-tight text-white">
+              CivicPulse
+            </p>
+            <p className="text-[11px] font-medium text-blue-200/70">
+              First Officer Console
+            </p>
           </div>
         </div>
 
         <div className="px-3 pt-5 pb-2">
-          <span className="px-3 text-[10px] font-bold uppercase tracking-wider text-white/45">Navigation</span>
+          <span className="px-3 text-[10px] font-bold uppercase tracking-wider text-white/45">
+            Navigation
+          </span>
         </div>
 
         <nav className="flex flex-1 flex-col gap-1.5 px-3" aria-label="Primary">
@@ -62,7 +86,9 @@ export function Layout() {
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
             </span>
-            <span className="text-xs font-semibold text-white">System Online</span>
+            <span className="text-xs font-semibold text-white">
+              System Online
+            </span>
           </div>
           <p className="mt-0.5 text-[11px] text-white/50">Ward 12 · On Duty</p>
         </div>
@@ -80,11 +106,16 @@ export function Layout() {
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Glass header — Apple Dynamic Navigation Bar */}
         <header className="glass-bar sticky top-0 z-30 flex items-center justify-between border-b px-4 py-3 sm:px-8">
-          <NavLink to="/officer" className="flex items-center gap-2.5 md:hidden">
+          <NavLink
+            to="/officer"
+            className="flex items-center gap-2.5 md:hidden"
+          >
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-xs font-bold text-white shadow-md">
               CP
             </div>
-            <span className="text-sm font-bold tracking-tight text-ink">Officer Console</span>
+            <span className="text-sm font-bold tracking-tight text-ink">
+              Officer Console
+            </span>
           </NavLink>
 
           {/* Ward pill */}
@@ -105,7 +136,9 @@ export function Layout() {
               <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-xs font-bold text-white shadow-sm">
                 RN
               </span>
-              <span className="text-xs font-semibold text-ink hidden sm:inline">Officer Naidu</span>
+              <span className="text-xs font-semibold text-ink hidden sm:inline">
+                Officer Naidu
+              </span>
             </div>
           </div>
         </header>
@@ -133,7 +166,7 @@ export function Layout() {
 
         {/* Bottom tab bar for tablets/officers in the field — Apple iPhone Frosted Tab Bar */}
         <nav
-          className="glass-bar grid grid-cols-3 border-t border-white/60 md:hidden sticky bottom-0 z-30 pb-safe shadow-[0_-4px_20px_rgba(15,23,42,0.05)]"
+          className="glass-bar grid grid-cols-4 border-t border-white/60 md:hidden sticky bottom-0 z-30 pb-safe shadow-[0_-4px_20px_rgba(15,23,42,0.05)]"
           aria-label="Primary"
         >
           {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
@@ -143,14 +176,16 @@ export function Layout() {
               end={end}
               className={({ isActive }) =>
                 `flex flex-col items-center gap-1 py-2 text-[11px] font-semibold transition-all ${
-                  isActive
-                    ? "text-blue-600"
-                    : "text-ink-soft/75 hover:text-ink"
+                  isActive ? "text-blue-600" : "text-ink-soft/75 hover:text-ink"
                 }`
               }
             >
               <Icon size={22} weight="duotone" />
-              {label === "Complaint Queue" ? "Queue" : label === "Issue Map" ? "Map" : label}
+              {label === "Complaint Queue"
+                ? "Queue"
+                : label === "Issue Map"
+                  ? "Map"
+                  : label}
             </NavLink>
           ))}
         </nav>

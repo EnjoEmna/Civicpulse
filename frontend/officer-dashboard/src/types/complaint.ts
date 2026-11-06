@@ -44,6 +44,7 @@ export interface Complaint {
   evidence: EvidenceFile[];
   timeline: TimelineEvent[];
   assignedOfficer?: string;
+  referenceId?: string;
 }
 
 export interface Officer {
@@ -52,4 +53,12 @@ export interface Officer {
   email: string;
   department: string;
   ward: string;
+}
+
+export interface CurrentUserProfile {
+  id: string;
+  name: string;
+  email: string;
+  role: "CITIZEN" | "OFFICER" | "ADMIN" | string;
+  created_at: string;
 }
