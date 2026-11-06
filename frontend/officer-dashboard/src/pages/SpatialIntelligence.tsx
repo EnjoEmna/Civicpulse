@@ -184,11 +184,13 @@ export default function SpatialIntelligence() {
       ? activeClusters.radiusMeters
       : Number(radiusMeters);
 
-  const mapComplaints = activeNearby
-    ? activeNearby.complaints
-    : activeClusters
-      ? activeClusters.clusters.flatMap((cluster) => cluster.complaints)
-      : [];
+  const mapComplaints = activeNearby ? activeNearby.complaints : [];
+
+  const mapClusters = activeClusters ? activeClusters.clusters : undefined;
+
+  const mapItemsDisplayed = activeClusters
+    ? activeClusters.clusters.length
+    : mapComplaints.length;
 
   return (
     <div className="flex flex-col gap-6">
@@ -416,10 +418,13 @@ export default function SpatialIntelligence() {
             center={mapCenter}
             radiusMeters={mapRadius}
             complaints={mapComplaints}
+            clusters={mapClusters}
           />
 
           <p className="text-[11px] text-ink-soft">
-            {mapComplaints.length} complaint location(s) displayed.
+            {activeClusters
+              ? `${mapItemsDisplayed} hotspot(s) displayed.`
+              : `${mapItemsDisplayed} complaint location(s) displayed.`}
           </p>
         </section>
       )}
