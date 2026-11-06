@@ -1,4 +1,10 @@
 import type { Complaint } from "../types/complaint";
+import type {
+  SpatialAnalysisRequest,
+  SpatialAnalysisResult,
+  SpatialClusteringRequest,
+  SpatialClusteringResult,
+} from "../types/spatial";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000/api/v1";
 
@@ -131,4 +137,22 @@ export const api = {
     }>("/officers/dashboard/stats"),
 
   getMapComplaints: () => request<Complaint[]>("/officers/complaints/map"),
+
+  analyzeSpatialArea: (payload: SpatialAnalysisRequest) =>
+    request<{ success: boolean; data: SpatialAnalysisResult }>(
+      "/spatial/analyze",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
+
+  analyzeSpatialClusters: (payload: SpatialClusteringRequest) =>
+    request<{ success: boolean; data: SpatialClusteringResult }>(
+      "/spatial/clusters",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    ),
 };

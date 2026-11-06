@@ -5,6 +5,7 @@ import Dashboard from "./pages/Dashboard";
 import ComplaintQueue from "./pages/ComplaintQueue";
 import ComplaintReview from "./pages/ComplaintReview";
 import IssueMap from "./pages/IssueMap";
+import SpatialIntelligence from "./pages/SpatialIntelligence";
 
 function isAuthenticated() {
   const params = new URLSearchParams(window.location.search);
@@ -18,7 +19,11 @@ function isAuthenticated() {
 }
 
 function RequireAuth({ children }: { children: JSX.Element }) {
-  return isAuthenticated() ? children : <Navigate to="/officer/login" replace />;
+  return isAuthenticated() ? (
+    children
+  ) : (
+    <Navigate to="/officer/login" replace />
+  );
 }
 
 export default function App() {
@@ -38,6 +43,10 @@ export default function App() {
           <Route path="/officer/complaints" element={<ComplaintQueue />} />
           <Route path="/officer/complaints/:id" element={<ComplaintReview />} />
           <Route path="/officer/map" element={<IssueMap />} />
+          <Route
+            path="/officer/spatial-intelligence"
+            element={<SpatialIntelligence />}
+          />
         </Route>
 
         <Route path="*" element={<Navigate to="/officer" replace />} />
