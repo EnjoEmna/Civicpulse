@@ -1,7 +1,17 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { UploadSimple, CheckCircle, Warning, X } from "@phosphor-icons/react";
-import type { ComplaintCategory } from "../types/complaint";
+import {
+  UploadSimple,
+  CheckCircle,
+  Warning,
+  X,
+  Sparkle,
+  ArrowsClockwise,
+} from "@phosphor-icons/react";
+import type {
+  ClassifyDraftResult,
+  ComplaintCategory,
+} from "../types/complaint";
 import LocationPicker, {
   type SelectedLocation,
 } from "../components/LocationPicker";
@@ -36,8 +46,16 @@ export default function ReportIssue() {
   const [selectedLocation, setSelectedLocation] =
     useState<SelectedLocation | null>(null);
 
+  const [createdComplaintId, setCreatedComplaintId] = useState("");
   const [referenceId, setReferenceId] = useState("");
   const [submitError, setSubmitError] = useState("");
+  const [evidenceWarning, setEvidenceWarning] = useState("");
+
+  const [aiDetecting, setAiDetecting] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [aiSuggestion, setAiSuggestion] = useState<ClassifyDraftResult | null>(
+    null,
+  );
 
   const [duplicateCandidates, setDuplicateCandidates] = useState<
     DuplicateCandidate[]
@@ -56,9 +74,66 @@ export default function ReportIssue() {
   }, [categoryParam]);
   const [description, setDescription] = useState("");
   const [address, setAddress] = useState("");
+  const [latText, setLatText] = useState("");
+  const [lngText, setLngText] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const urls = files.map((file) =>
+      file.type.startsWith("image/") ? URL.createObjectURL(file) : "",
+    );
+    setPreviewUrls(urls);
+
+    return () => {
+      for (const url of urls) {
+        if (url) URL.revokeObjectURL(url);
+      }
+    };
+  }, [files]);
+
+  async function handleAutoClassify() {
+    setAiError("");
+    if (!title.trim() && !description.trim()) {
+      setAiError("Enter a short title or description first so AI can analyze your issue.");
+      return;
+    }
+
+    setAiDetecting(true);
+    try {
+      const response = await api.classifyDraft({
+        title: title.trim(),
+        description: description.trim(),
+        address: address.trim(),
+        existingCategory: category || null,
+      });
+
+      const suggestion = response.data;
+      setAiSuggestion(suggestion);
+
+      if (
+        suggestion.citizenCategory &&
+        CATEGORY_OPTIONS.some((c) => c.value === suggestion.citizenCategory)
+      ) {
+        setCategory(suggestion.citizenCategory);
+        setErrors((prev) => {
+          const next = { ...prev };
+          delete next.category;
+          return next;
+        });
+      }
+    } catch (err) {
+      setAiError(
+        err instanceof Error
+          ? err.message
+          : "Unable to analyze complaint draft right now.",
+      );
+    } finally {
+      setAiDetecting(false);
+    }
+  }
 
   function validateDetails() {
     const next: Record<string, string> = {};
@@ -106,6 +181,7 @@ export default function ReportIssue() {
 
     try {
       const result = await api.checkDuplicates({
+        title: title.trim(),
         description: description.trim(),
         category,
         latitude: selectedLocation.latitude,
@@ -139,6 +215,7 @@ export default function ReportIssue() {
 
     setSubmitting(true);
     setSubmitError("");
+    setEvidenceWarning("");
 
     try {
       const result = await api.createComplaint({
@@ -150,7 +227,40 @@ export default function ReportIssue() {
         longitude: selectedLocation.longitude,
       });
 
+      setCreatedComplaintId(result.data.id);
       setReferenceId(result.data.referenceId);
+
+      if (aiSuggestion) {
+        void api
+          .submitAiFeedback({
+            eventType: "CLASSIFICATION_SUGGESTION",
+            action:
+              category === aiSuggestion.citizenCategory ? "ACCEPTED" : "MODIFIED",
+            complaintId: result.data.id,
+            suggestedValue: aiSuggestion.citizenCategory,
+            finalValue: category,
+            metadata: {
+              confidence: aiSuggestion.confidence,
+              source:
+                aiSuggestion.metadata?.classificationProvenance?.source ||
+                "unknown",
+            },
+          })
+          .catch(() => {});
+      }
+
+      if (files.length > 0) {
+        try {
+          await api.uploadComplaintEvidence(result.data.id, files);
+        } catch (uploadErr) {
+          setEvidenceWarning(
+            uploadErr instanceof Error
+              ? `Your report was submitted, but evidence upload encountered an error: ${uploadErr.message}`
+              : "Your report was submitted, but evidence files could not be uploaded. You can upload them from Complaint Details.",
+          );
+        }
+      }
+
       setStep("submitted");
     } catch (error) {
       setSubmitError(
@@ -171,6 +281,19 @@ export default function ReportIssue() {
 
     try {
       await api.upvoteComplaint(candidate.complaintId);
+      void api
+        .submitAiFeedback({
+          eventType: "DUPLICATE_SUGGESTION",
+          action: "ACCEPTED",
+          targetComplaintId: candidate.complaintId,
+          suggestedValue: candidate.referenceId || candidate.complaintId,
+          metadata: {
+            similarity: candidate.similarity,
+            combinedScore: candidate.combinedScore ?? candidate.similarity,
+            distanceMeters: candidate.distanceMeters,
+          },
+        })
+        .catch(() => {});
       navigate("/complaints");
     } catch (error) {
       setDuplicateError(
@@ -201,11 +324,24 @@ export default function ReportIssue() {
           <span className="font-mono font-bold text-primary">
             #{referenceId}
           </span>
-          . You'll get updates as it progresses.
+          . Background AI triage is now routing and summarizing it for officers.
         </p>
-        <div className="mt-3 flex gap-3">
+
+        {evidenceWarning && (
+          <p className="rounded-xl border border-amber-400/40 bg-amber-500/10 p-3 text-xs font-medium text-amber-800">
+            {evidenceWarning}
+          </p>
+        )}
+
+        <div className="mt-3 flex flex-wrap justify-center gap-3">
           <button
-            onClick={() => navigate("/complaints")}
+            onClick={() =>
+              navigate(
+                createdComplaintId
+                  ? `/complaints/${createdComplaintId}`
+                  : "/complaints",
+              )
+            }
             className="ios-btn-primary px-5 py-2.5 text-sm font-semibold text-white shadow-md cursor-pointer"
           >
             Track this complaint
@@ -285,6 +421,72 @@ export default function ReportIssue() {
             />
           </Field>
 
+          <Field
+            label="Description"
+            htmlFor="description"
+            error={errors.description}
+            helper="What's wrong, and how long has it been like this?"
+          >
+            <textarea
+              id="description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={4}
+              placeholder="Describe the issue clearly so our department can prioritize and route it..."
+              className={inputClass(!!errors.description)}
+            />
+          </Field>
+
+          {/* AI Auto-classification Helper Bar */}
+          <div className="space-y-2.5 rounded-2xl border border-indigo-200/70 bg-indigo-500/[0.06] p-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs">
+                <Sparkle size={16} weight="fill" className="text-indigo-600" />
+                <span className="font-bold text-ink">
+                  Smart Category &amp; Priority Assistant
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleAutoClassify()}
+                disabled={aiDetecting}
+                className="inline-flex items-center gap-1.5 rounded-full border border-indigo-300/70 bg-white/85 px-3 py-1.5 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-white disabled:opacity-60 cursor-pointer"
+              >
+                {aiDetecting ? (
+                  <ArrowsClockwise size={13} className="animate-spin" />
+                ) : (
+                  <Sparkle size={13} weight="fill" />
+                )}
+                {aiDetecting ? "Analyzing..." : "Auto-detect category with AI"}
+              </button>
+            </div>
+
+            {aiError && (
+              <p className="text-xs font-medium text-rose-700">{aiError}</p>
+            )}
+
+            {aiSuggestion && (
+              <div className="space-y-1.5 rounded-xl border border-white/70 bg-white/70 p-3 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-bold text-indigo-800">
+                    Suggested: {CATEGORY_OPTIONS.find((c) => c.value === aiSuggestion.citizenCategory)?.label ?? aiSuggestion.category}
+                  </span>
+                  <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-700">
+                    {Math.round(aiSuggestion.confidence * 100)}% confidence &middot;{" "}
+                    {aiSuggestion.metadata?.classificationProvenance?.source === "gemini"
+                      ? "Gemini AI"
+                      : "Rule-based NLP"}
+                  </span>
+                </div>
+                <p className="text-ink-soft">
+                  Department: <strong className="text-ink">{aiSuggestion.department}</strong> &middot;
+                  Priority: <strong className="text-ink">{aiSuggestion.priority}</strong>
+                </p>
+                <p className="text-ink-soft leading-relaxed">{aiSuggestion.summary}</p>
+              </div>
+            )}
+          </div>
+
           <Field label="Category" htmlFor="category" error={errors.category}>
             <select
               id="category"
@@ -302,21 +504,9 @@ export default function ReportIssue() {
           </Field>
 
           <Field
-            label="Description"
-            htmlFor="description"
-            error={errors.description}
-            helper="What's wrong, and how long has it been like this?"
+            label="Photos / Evidence (optional, up to 5 files)"
+            htmlFor="evidence"
           >
-            <textarea
-              id="description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={4}
-              className={inputClass(!!errors.description)}
-            />
-          </Field>
-
-          <Field label="Photos (optional)" htmlFor="evidence">
             <label
               htmlFor="evidence"
               className="flex cursor-pointer flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-white/70 bg-white/40 py-6 text-center backdrop-blur-sm transition-all hover:bg-white/60 hover:border-blue-400"
@@ -325,37 +515,55 @@ export default function ReportIssue() {
                 <UploadSimple size={22} weight="bold" />
               </div>
               <span className="text-xs font-semibold text-ink-soft">
-                Tap to add photos as evidence
+                Tap to add photos, videos, or PDFs as evidence (max 10 MB each)
               </span>
               <input
                 id="evidence"
                 type="file"
-                accept="image/*"
+                accept="image/*,video/mp4,video/webm,application/pdf"
                 multiple
                 className="hidden"
-                onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+                onChange={(e) => {
+                  const chosen = Array.from(e.target.files ?? []);
+                  setFiles((prev) => [...prev, ...chosen].slice(0, 5));
+                  e.target.value = "";
+                }}
               />
             </label>
             {files.length > 0 && (
-              <ul className="mt-2 flex flex-wrap gap-2">
+              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                 {files.map((f, i) => (
-                  <li
-                    key={i}
-                    className="flex items-center gap-1.5 rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-semibold text-primary shadow-sm backdrop-blur-md"
+                  <div
+                    key={`${f.name}-${i}`}
+                    className="relative flex flex-col overflow-hidden rounded-xl border border-white/70 bg-white/70 shadow-sm backdrop-blur-md"
                   >
-                    {f.name}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setFiles((prev) => prev.filter((_, idx) => idx !== i))
-                      }
-                      aria-label={`Remove ${f.name}`}
-                    >
-                      <X size={12} weight="bold" />
-                    </button>
-                  </li>
+                    {previewUrls[i] ? (
+                      <img
+                        src={previewUrls[i]}
+                        alt={f.name}
+                        className="h-24 w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-24 w-full items-center justify-center bg-slate-100 text-xs font-semibold text-ink-soft">
+                        {f.type.includes("pdf") ? "PDF" : "Video"}
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between gap-1 px-2.5 py-1.5 text-[11px] font-semibold text-primary">
+                      <span className="truncate">{f.name}</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFiles((prev) => prev.filter((_, idx) => idx !== i))
+                        }
+                        aria-label={`Remove ${f.name}`}
+                        className="shrink-0 rounded-full p-0.5 hover:bg-rose-50 hover:text-rose-600 cursor-pointer"
+                      >
+                        <X size={12} weight="bold" />
+                      </button>
+                    </div>
+                  </div>
                 ))}
-              </ul>
+              </div>
             )}
           </Field>
 
@@ -381,12 +589,24 @@ export default function ReportIssue() {
             value={selectedLocation}
             onChange={(location) => {
               setSelectedLocation(location);
+              setLatText(String(location.latitude));
+              setLngText(String(location.longitude));
 
               setErrors((previous) => {
                 const next = { ...previous };
                 delete next.location;
                 return next;
               });
+            }}
+            onPlaceSelect={(place) => {
+              if (!address.trim()) {
+                setAddress(place.label);
+                setErrors((previous) => {
+                  const next = { ...previous };
+                  delete next.address;
+                  return next;
+                });
+              }
             }}
           />
 
@@ -396,13 +616,68 @@ export default function ReportIssue() {
             </p>
           )}
 
-          {selectedLocation && (
-            <div className="rounded-xl border border-white/70 bg-white/50 p-3 text-xs text-ink-soft">
-              <p className="font-semibold text-ink">Selected coordinates</p>
-              <p>Latitude: {selectedLocation.latitude.toFixed(6)}</p>
-              <p>Longitude: {selectedLocation.longitude.toFixed(6)}</p>
-            </div>
-          )}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Latitude" htmlFor="latitude">
+              <input
+                id="latitude"
+                type="text"
+                inputMode="decimal"
+                value={latText}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setLatText(raw);
+                  const trimmed = raw.trim();
+                  if (!trimmed || trimmed === "-" || trimmed.endsWith(".")) return;
+                  const lat = Number(trimmed);
+                  if (!Number.isFinite(lat) || lat < -90 || lat > 90) return;
+                  const fallbackLng = Number(lngText);
+                  setSelectedLocation({
+                    latitude: lat,
+                    longitude:
+                      selectedLocation?.longitude ??
+                      (Number.isFinite(fallbackLng) ? fallbackLng : 78.4357),
+                  });
+                  setErrors((previous) => {
+                    const next = { ...previous };
+                    delete next.location;
+                    return next;
+                  });
+                }}
+                placeholder="e.g. 8.76284"
+                className={inputClass(false)}
+              />
+            </Field>
+            <Field label="Longitude" htmlFor="longitude">
+              <input
+                id="longitude"
+                type="text"
+                inputMode="decimal"
+                value={lngText}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setLngText(raw);
+                  const trimmed = raw.trim();
+                  if (!trimmed || trimmed === "-" || trimmed.endsWith(".")) return;
+                  const lng = Number(trimmed);
+                  if (!Number.isFinite(lng) || lng < -180 || lng > 180) return;
+                  const fallbackLat = Number(latText);
+                  setSelectedLocation({
+                    latitude:
+                      selectedLocation?.latitude ??
+                      (Number.isFinite(fallbackLat) ? fallbackLat : 17.4156),
+                    longitude: lng,
+                  });
+                  setErrors((previous) => {
+                    const next = { ...previous };
+                    delete next.location;
+                    return next;
+                  });
+                }}
+                placeholder="e.g. 76.79146"
+                className={inputClass(false)}
+              />
+            </Field>
+          </div>
 
           <Field label="Address" htmlFor="address" error={errors.address}>
             <input
@@ -448,8 +723,12 @@ export default function ReportIssue() {
             <SummaryRow label="Description" value={description} />
             <SummaryRow label="Address" value={address} />
             <SummaryRow
-              label="Photos"
-              value={files.length ? `${files.length} attached` : "None"}
+              label="Evidence Files"
+              value={
+                files.length
+                  ? `${files.length} attached (${files.map((f) => f.name).join(", ")})`
+                  : "None"
+              }
             />
           </div>
 
@@ -524,19 +803,39 @@ export default function ReportIssue() {
                 className="rounded-2xl border border-white/70 bg-white/50 p-4"
               >
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-ink-soft">
-                    {candidate.category}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {candidate.referenceId && (
+                      <span className="font-mono text-xs font-bold text-primary">
+                        #{candidate.referenceId}
+                      </span>
+                    )}
+                    <span className="text-xs font-semibold text-ink-soft">
+                      {candidate.canonicalCategory || candidate.category}
+                    </span>
+                    {candidate.ward && (
+                      <span className="text-[11px] text-ink-soft">
+                        · {candidate.ward}
+                      </span>
+                    )}
+                  </div>
                   <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
-                    {Math.round(candidate.similarity * 100)}% text similarity
+                    {Math.round(
+                      (candidate.combinedScore ?? candidate.similarity) * 100,
+                    )}
+                    % match ({Math.round(candidate.similarity * 100)}% semantic)
                   </span>
                 </div>
 
-                <p className="text-sm font-semibold text-ink">
+                {candidate.title && (
+                  <h3 className="text-sm font-bold text-ink">
+                    {candidate.title}
+                  </h3>
+                )}
+                <p className="mt-1 text-xs leading-relaxed text-ink-soft">
                   {candidate.description}
                 </p>
 
-                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-soft">
+                <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-soft">
                   <span>Status: {candidate.status.replace(/_/g, " ")}</span>
                   {candidate.distanceMeters != null && (
                     <span>{Math.round(candidate.distanceMeters)} m away</span>
@@ -544,11 +843,24 @@ export default function ReportIssue() {
                   <span>{candidate.upvoteCount} upvotes</span>
                 </div>
 
+                {candidate.matchReasons && candidate.matchReasons.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {candidate.matchReasons.map((reason) => (
+                      <span
+                        key={reason}
+                        className="rounded-full border border-indigo-200/80 bg-indigo-50/70 px-2 py-0.5 text-[10px] font-semibold capitalize text-indigo-700"
+                      >
+                        {reason}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 <button
                   type="button"
                   disabled={upvotingId !== null}
                   onClick={() => void handleUpvote(candidate)}
-                  className="ios-btn-primary mt-4 w-full py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+                  className="ios-btn-primary mt-4 w-full py-2.5 text-sm font-semibold text-white disabled:opacity-60 cursor-pointer"
                 >
                   {upvotingId === candidate.complaintId
                     ? "Upvoting..."
@@ -562,7 +874,7 @@ export default function ReportIssue() {
             <button
               type="button"
               onClick={() => setStep("review")}
-              className="flex-1 rounded-xl border border-white/70 bg-white/60 py-3 text-sm font-semibold text-ink"
+              className="flex-1 rounded-xl border border-white/70 bg-white/60 py-3 text-sm font-semibold text-ink cursor-pointer"
             >
               Back to review
             </button>
@@ -570,8 +882,25 @@ export default function ReportIssue() {
             <button
               type="button"
               disabled={submitting}
-              onClick={() => void registerComplaint()}
-              className="ios-btn-primary flex-1 py-3 text-sm font-semibold text-white disabled:opacity-60"
+              onClick={() => {
+                const top = duplicateCandidates[0];
+                if (top) {
+                  void api
+                    .submitAiFeedback({
+                      eventType: "DUPLICATE_SUGGESTION",
+                      action: "REJECTED",
+                      targetComplaintId: top.complaintId,
+                      suggestedValue: top.referenceId || top.complaintId,
+                      metadata: {
+                        similarity: top.similarity,
+                        combinedScore: top.combinedScore ?? top.similarity,
+                      },
+                    })
+                    .catch(() => {});
+                }
+                void registerComplaint();
+              }}
+              className="ios-btn-primary flex-1 py-3 text-sm font-semibold text-white disabled:opacity-60 cursor-pointer"
             >
               {submitting ? "Submitting..." : "Submit as new complaint"}
             </button>

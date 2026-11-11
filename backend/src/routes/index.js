@@ -6,12 +6,14 @@ const userRoutes = require("../modules/users/user.routes");
 const authRoutes = require("../modules/auth/auth.routes");
 const complaintRoutes = require("../modules/complaints/complaint.routes");
 const duplicateRoutes = require("../modules/intelligence/understand/duplicate.routes");
+const understandRoutes = require("../modules/intelligence/understand/understand.routes");
 const spatialRoutes = require("../modules/intelligence/spatial/spatial.routes");
 
 router.use("/auth", authRoutes);
 router.use("/users", userRoutes);
 router.use("/complaints", complaintRoutes);
 router.use("/intelligence", duplicateRoutes);
+router.use("/intelligence", understandRoutes);
 router.use("/spatial", spatialRoutes);
 
 module.exports = router;

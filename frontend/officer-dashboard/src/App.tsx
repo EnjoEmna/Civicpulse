@@ -6,6 +6,7 @@ import ComplaintQueue from "./pages/ComplaintQueue";
 import ComplaintReview from "./pages/ComplaintReview";
 import IssueMap from "./pages/IssueMap";
 import SpatialIntelligence from "./pages/SpatialIntelligence";
+import OfficerProfile from "./pages/OfficerProfile";
 
 function isAuthenticated() {
   const params = new URLSearchParams(window.location.search);
@@ -42,6 +43,7 @@ export default function App() {
           <Route path="/officer" element={<Dashboard />} />
           <Route path="/officer/complaints" element={<ComplaintQueue />} />
           <Route path="/officer/complaints/:id" element={<ComplaintReview />} />
+          <Route path="/officer/profile" element={<OfficerProfile />} />
           <Route path="/officer/map" element={<IssueMap />} />
           <Route
             path="/officer/spatial-intelligence"

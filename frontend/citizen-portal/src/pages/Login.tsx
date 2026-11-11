@@ -19,14 +19,12 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const location = useLocation();
   const accountCreated = location.state?.accountCreated === true;
+
   useEffect(() => {
     if (accountCreated) {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, [accountCreated]);
-
-  // Determine officer dashboard URL based on environment
-  // const officerDashboardUrl = `http://${window.location.hostname}:5174/officer?token=demo-token`;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -37,22 +35,31 @@ export default function Login() {
       return;
     }
 
-    if (role === "officer") {
-      setError(
-        "Officer sign-in will be connected in the officer integration step.",
-      );
-      return;
-    }
-
     setLoading(true);
 
     try {
       const response = await api.login(email.trim(), password);
       const { accessToken, user } = response.data;
+      const normalizedRole = String(user.role || "").toUpperCase();
 
-      if (user.role !== "CITIZEN") {
+      if (role === "officer") {
+        if (!["OFFICER", "ADMIN"].includes(normalizedRole)) {
+          throw new Error(
+            "This account is not authorized for the Officer Console.",
+          );
+        }
+
+        const officerDashboardUrl =
+          import.meta.env.VITE_OFFICER_DASHBOARD_URL ??
+          `http://${window.location.hostname}:5174/officer`;
+        const separator = officerDashboardUrl.includes("?") ? "&" : "?";
+        window.location.href = `${officerDashboardUrl}${separator}token=${encodeURIComponent(accessToken)}`;
+        return;
+      }
+
+      if (normalizedRole !== "CITIZEN") {
         throw new Error(
-          "This account is not authorized for the citizen portal.",
+          "This account is registered as staff. Switch to the Officer Console tab to sign in.",
         );
       }
 
@@ -191,7 +198,7 @@ export default function Login() {
                 onChange={(e) => setEmail(e.target.value)}
                 className="glass-input w-full py-2.5 pl-10 pr-3.5 text-sm"
                 placeholder={
-                  role === "citizen" ? "you@example.com" : "officer@city.gov.in"
+                  role === "citizen" ? "you@example.com" : "officer@civicpulse.org"
                 }
               />
             </div>
@@ -243,7 +250,7 @@ export default function Login() {
               ? "Signing in…"
               : role === "citizen"
                 ? "Sign in as Citizen"
-                : "Sign in as Officer"}
+                : "Sign in & Open Officer Console"}
           </button>
         </form>
 

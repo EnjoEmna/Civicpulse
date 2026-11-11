@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import ForgotPassword from "./pages/ForgotPassword";
 import Home from "./pages/Home";
 import ReportIssue from "./pages/ReportIssue";
 import MyComplaints from "./pages/MyComplaints";
@@ -9,7 +10,6 @@ import ComplaintDetails from "./pages/ComplaintDetails";
 import CivicMap from "./pages/CivicMap";
 import Profile from "./pages/Profile";
 
-// Swap for a real auth check once /auth/login is wired up.
 function isAuthenticated() {
   const params = new URLSearchParams(window.location.search);
   const token = params.get("token");
@@ -31,6 +31,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
 
         <Route
           element={
@@ -43,7 +44,7 @@ export default function App() {
           <Route path="/report" element={<ReportIssue />} />
           <Route path="/complaints" element={<MyComplaints />} />
           <Route path="/complaints/:id" element={<ComplaintDetails />} />
-          {/* <Route path="/map" element={<CivicMap />} /> */}
+          <Route path="/map" element={<CivicMap />} />
           <Route path="/profile" element={<Profile />} />
         </Route>
 

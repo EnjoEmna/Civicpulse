@@ -1,5 +1,13 @@
 import { Link } from "react-router-dom";
-import { FileText, MapPin, ClipboardText, ArrowRight, RoadHorizon, Drop, Lightning, Trash } from "@phosphor-icons/react";
+import {
+  FileText,
+  ClipboardText,
+  MapPin,
+  RoadHorizon,
+  Drop,
+  Lightning,
+  Trash,
+} from "@phosphor-icons/react";
 import type { ComplaintCategory } from "../types/complaint";
 
 const CATEGORIES: { label: string; key: ComplaintCategory; icon: React.ElementType; iconBg: string; glow: string }[] = [
@@ -42,38 +50,14 @@ export default function Home() {
               >
                 <ClipboardText size={18} weight="bold" className="text-primary" /> Track My Complaints
               </Link>
-            </div>
-          </div>
-
-          {/* <div className="rounded-2xl border border-white/60 bg-white/40 p-5 backdrop-blur-md shadow-[inset_0_1px_1px_rgba(255,255,255,0.7)]">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-blue-600" />
-                <span className="text-xs font-bold uppercase tracking-wider text-ink">Issues near you</span>
-              </div>
-              <Link to="/map" className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline">
-                View map <ArrowRight size={12} weight="bold" />
+              <Link
+                to="/map"
+                className="inline-flex items-center gap-2 rounded-2xl border border-white/70 bg-white/60 px-5 py-3 text-sm font-semibold text-ink shadow-[inset_0_1px_1px_rgba(255,255,255,0.8),0_2px_8px_rgba(15,23,42,0.04)] backdrop-blur-md transition-all hover:bg-white/90"
+              >
+                <MapPin size={18} weight="bold" className="text-primary" /> Nearby Issues Map
               </Link>
             </div>
-            <ul className="flex flex-col gap-2.5" aria-label="Recent nearby issues">
-              {[
-                { title: "Pothole on 4th Cross Rd", distance: "0.4 km away" },
-                { title: "Streetlight outage, Park Ave", distance: "0.7 km away" },
-                { title: "Overflowing bin, Market St", distance: "1.1 km away" },
-              ].map((item) => (
-                <li
-                  key={item.title}
-                  className="flex items-center gap-3 rounded-xl border border-white/50 bg-white/60 p-3 text-sm backdrop-blur-sm shadow-[inset_0_1px_0.5px_rgba(255,255,255,0.7)]"
-                >
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600">
-                    <MapPin size={16} weight="fill" />
-                  </div>
-                  <span className="flex-1 font-medium text-ink">{item.title}</span>
-                  <span className="shrink-0 text-xs font-semibold text-ink-soft">{item.distance}</span>
-                </li>
-              ))}
-            </ul>
-          </div> */}
+          </div>
         </div>
       </section>
 
@@ -111,9 +95,9 @@ export default function Home() {
         </div>
         <ol className="grid gap-6 sm:grid-cols-3">
           {[
-            { step: "1", title: "Report", body: "Describe the issue, add a photo, and pin the location." },
-            { step: "2", title: "Route", body: "We assign it to the right officer or department automatically." },
-            { step: "3", title: "Track", body: "Follow status updates until it's resolved." },
+            { step: "1", title: "Report", body: "Describe the issue, let AI suggest the category, add photos, and pin the location." },
+            { step: "2", title: "Route", body: "We classify, summarize, and route it to the right officer or municipal department." },
+            { step: "3", title: "Track", body: "Follow persisted status updates and officer notes until it's resolved." },
           ].map(({ step, title, body }) => (
             <li
               key={step}

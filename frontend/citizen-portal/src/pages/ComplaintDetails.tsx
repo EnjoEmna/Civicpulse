@@ -4,13 +4,23 @@ import {
   ArrowLeft,
   MapPin,
   User,
+  Buildings,
+  Sparkle,
   CheckCircle,
   Circle,
   Clock,
+  UploadSimple,
+  FilePdf,
+  VideoCamera,
+  ArrowSquareOut,
 } from "@phosphor-icons/react";
 import { StatusBadge } from "../components/StatusBadge";
-import { api, type CreatedComplaint } from "../api/client";
-import type { Complaint, ComplaintStatus } from "../types/complaint";
+import { api, resolveAssetUrl, type CreatedComplaint } from "../api/client";
+import type {
+  Complaint,
+  ComplaintStatus,
+  TimelineEvent,
+} from "../types/complaint";
 
 function mapStatus(status: string): ComplaintStatus {
   switch (status.toUpperCase()) {
@@ -56,13 +66,51 @@ function mapCategory(category: string): Complaint["category"] {
   return "other";
 }
 
+function formatBackendStatusLabel(status?: string) {
+  if (!status) return "Open";
+  return status
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function toComplaint(item: CreatedComplaint): Complaint {
+  const timeline: TimelineEvent[] =
+    Array.isArray(item.timeline) && item.timeline.length > 0
+      ? item.timeline.map((event) => ({
+          id: event.id,
+          fromStatus: event.fromStatus ?? null,
+          status: mapStatus(event.status),
+          rawStatus: event.status,
+          actor: event.actor || "System",
+          actorRole: event.actorRole,
+          note:
+            event.note ||
+            `Status updated to ${formatBackendStatusLabel(event.status)}`,
+          timestamp: event.timestamp,
+        }))
+      : [
+          {
+            id: "submitted",
+            status: mapStatus(item.status),
+            rawStatus: item.status,
+            actor: "You",
+            note: "Complaint submitted",
+            timestamp: item.createdAt,
+          },
+        ];
+
   return {
     id: item.id,
+    referenceId: item.referenceId,
     title: item.title,
     description: item.description,
     category: mapCategory(item.category),
+    department: item.department ?? null,
+    assignedOfficer: item.assignedOfficer ?? null,
     status: mapStatus(item.status),
+    priority: item.priority ?? null,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
     location: {
@@ -70,16 +118,19 @@ function toComplaint(item: CreatedComplaint): Complaint {
       lat: Number(item.latitude),
       lng: Number(item.longitude),
     },
-    evidence: [],
-    timeline: [
-      {
-        id: "submitted",
-        status: "open",
-        actor: "You",
-        note: "Complaint submitted",
-        timestamp: item.createdAt,
-      },
-    ],
+    evidence: Array.isArray(item.evidence)
+      ? item.evidence.map((e) => ({
+          id: e.id,
+          url: resolveAssetUrl(e.url),
+          type: e.type || "document",
+          originalName: e.originalName,
+          mimeType: e.mimeType,
+          fileSize: e.fileSize,
+          uploadedAt: e.uploadedAt,
+        }))
+      : [],
+    timeline,
+    intelligence: item.intelligence ?? null,
   };
 }
 
@@ -90,6 +141,8 @@ export default function ComplaintDetails() {
   const [referenceId, setReferenceId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -130,6 +183,27 @@ export default function ComplaintDetails() {
       cancelled = true;
     };
   }, [id]);
+
+  async function handleUploadEvidence(fileList: FileList | null) {
+    if (!complaint || !fileList || fileList.length === 0) return;
+
+    setUploading(true);
+    setUploadError("");
+
+    try {
+      const files = Array.from(fileList);
+      const res = await api.uploadComplaintEvidence(complaint.id, files);
+      setComplaint((prev) =>
+        prev ? { ...prev, evidence: [...prev.evidence, ...res.data] } : null,
+      );
+    } catch (err) {
+      setUploadError(
+        err instanceof Error ? err.message : "Failed to upload evidence files.",
+      );
+    } finally {
+      setUploading(false);
+    }
+  }
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -182,35 +256,132 @@ export default function ComplaintDetails() {
               {complaint.description}
             </p>
 
-            <div className="grid gap-3 sm:grid-cols-2 pt-2 border-t border-white/40">
+            <div className="grid gap-3 sm:grid-cols-3 pt-2 border-t border-white/40">
               <InfoTile
                 icon={MapPin}
                 label="Location"
                 value={complaint.location.address || "Address not available"}
               />
               <InfoTile
+                icon={Buildings}
+                label="Department"
+                value={complaint.department || "Municipal General Services"}
+              />
+              <InfoTile
                 icon={User}
                 label="Assigned Officer"
-                value="Not assigned yet"
+                value={
+                  complaint.assignedOfficer?.name || "Awaiting officer assignment"
+                }
               />
             </div>
 
+            {complaint.intelligence?.aiSummary && (
+              <div className="mt-4 rounded-ios-xl border border-indigo-200/70 bg-indigo-500/[0.06] p-3.5">
+                <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-indigo-700">
+                    <Sparkle size={13} weight="fill" />
+                    Automated Triage Summary
+                  </span>
+                  {complaint.intelligence.aiPriority && (
+                    <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-bold text-indigo-700 border border-indigo-200/60">
+                      Priority: {complaint.intelligence.aiPriority}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs leading-relaxed text-ink">
+                  {complaint.intelligence.aiSummary}
+                </p>
+              </div>
+            )}
+
             <div className="mt-5 border-t border-white/40 pt-4">
-              <span className="text-xs font-semibold text-ink-soft uppercase tracking-wider">
-                Evidence
-              </span>
-              <p className="mt-2 text-xs text-ink-soft">
-                No evidence files are available for display.
-              </p>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-ink-soft uppercase tracking-wider">
+                  Evidence ({complaint.evidence.length})
+                </span>
+                <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-white/70 bg-white/60 px-3 py-1 text-xs font-semibold text-primary shadow-sm hover:bg-white">
+                  <UploadSimple size={13} weight="bold" />
+                  {uploading ? "Uploading..." : "Upload Photos"}
+                  <input
+                    type="file"
+                    accept="image/*,video/mp4,video/webm,application/pdf"
+                    multiple
+                    disabled={uploading}
+                    className="hidden"
+                    onChange={(e) => {
+                      void handleUploadEvidence(e.target.files);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+
+              {uploadError && (
+                <p
+                  role="alert"
+                  className="mb-3 rounded-xl bg-rose-500/10 px-3 py-2 text-xs font-medium text-rose-700"
+                >
+                  {uploadError}
+                </p>
+              )}
+
+              {complaint.evidence.length > 0 ? (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {complaint.evidence.map((item) => (
+                    <a
+                      key={item.id}
+                      href={item.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="group flex flex-col overflow-hidden rounded-xl border border-white/70 bg-white/55 shadow-sm transition hover:border-blue-400"
+                    >
+                      {item.type === "image" ? (
+                        <img
+                          src={item.url}
+                          alt={item.originalName || "Uploaded evidence"}
+                          className="h-28 w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                        />
+                      ) : item.type === "video" ? (
+                        <div className="flex h-28 w-full flex-col items-center justify-center gap-1 bg-slate-100 text-primary">
+                          <VideoCamera size={24} weight="duotone" />
+                          <span className="text-[11px] font-semibold">Video</span>
+                        </div>
+                      ) : (
+                        <div className="flex h-28 w-full flex-col items-center justify-center gap-1 bg-slate-100 text-rose-600">
+                          <FilePdf size={24} weight="duotone" />
+                          <span className="text-[11px] font-semibold">Document</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between gap-1 px-2.5 py-1.5 text-[11px] font-semibold text-ink-soft">
+                        <span className="truncate">
+                          {item.originalName || "Evidence"}
+                        </span>
+                        <ArrowSquareOut size={12} className="shrink-0 text-primary" />
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-ink-soft">
+                  No evidence files uploaded yet. Use Upload Photos above to attach supporting files.
+                </p>
+              )}
             </div>
           </div>
 
           <div className="glass-panel rounded-ios-2xl p-6 sm:p-7 shadow-ios-glass border border-white/70">
-            <div className="flex items-center gap-2 mb-5">
-              <Clock size={18} className="text-primary" weight="duotone" />
-              <h2 className="text-sm font-bold uppercase tracking-wider text-ink">
-                Activity & Resolution Timeline
-              </h2>
+            <div className="flex items-center justify-between gap-2 mb-5">
+              <div className="flex items-center gap-2">
+                <Clock size={18} className="text-primary" weight="duotone" />
+                <h2 className="text-sm font-bold uppercase tracking-wider text-ink">
+                  Activity &amp; Resolution Timeline
+                </h2>
+              </div>
+              <span className="text-xs font-semibold text-ink-soft">
+                {complaint.timeline.length}{" "}
+                {complaint.timeline.length === 1 ? "event" : "events"}
+              </span>
             </div>
 
             <ol className="flex flex-col gap-6">
@@ -244,16 +415,23 @@ export default function ComplaintDetails() {
                       )}
                     </div>
 
-                    <div className="flex flex-col gap-1 -mt-0.5">
-                      <span className="text-sm font-semibold text-ink leading-tight">
-                        {event.note}
-                      </span>
+                    <div className="flex flex-1 flex-col gap-1 -mt-0.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-sm font-semibold text-ink leading-tight">
+                          {event.note}
+                        </span>
+                        {event.rawStatus && (
+                          <span className="rounded-full border border-white/70 bg-white/60 px-2 py-0.5 text-[10px] font-bold text-ink-soft">
+                            {formatBackendStatusLabel(event.rawStatus)}
+                          </span>
+                        )}
+                      </div>
 
                       <div className="flex flex-wrap items-center gap-2 text-xs text-ink-soft">
                         <span className="font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200/50">
                           {event.actor}
                         </span>
-                        <span>·</span>
+                        <span>&middot;</span>
                         <span>
                           {new Date(event.timestamp).toLocaleString()}
                         </span>
@@ -265,9 +443,8 @@ export default function ComplaintDetails() {
             </ol>
 
             <p className="mt-5 border-t border-white/40 pt-4 text-xs text-ink-soft">
-              Only the submission event is currently available. Additional
-              status changes will appear here once complaint history is
-              persisted by the backend.
+              Timeline updates are persisted in CivicPulse and appear automatically
+              as officers review, assign, and resolve your report.
             </p>
           </div>
         </>
@@ -295,7 +472,7 @@ function InfoTile({
         <span className="text-[11px] font-semibold text-ink-soft uppercase tracking-wider">
           {label}
         </span>
-        <span className="text-xs sm:text-sm font-semibold text-ink truncate">
+        <span className="text-xs sm:text-sm font-semibold text-ink break-words">
           {value}
         </span>
       </div>

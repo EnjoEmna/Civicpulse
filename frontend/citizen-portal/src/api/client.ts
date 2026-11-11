@@ -1,10 +1,25 @@
 import type {
-  Complaint,
+  ActiveCitiesResponse,
+  AssignedOfficerInfo,
   CitizenProfile,
+  ClassifyDraftResult,
   ComplaintCategory,
+  ComplaintIntelligence,
+  EvidenceFile,
+  GeocodeResponse,
+  NearbyComplaint,
 } from "../types/complaint";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000/api/v1";
+const API_ORIGIN = BASE_URL.replace(/\/api\/v1\/?$/, "");
+
+export function resolveAssetUrl(url: string): string {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    return url;
+  }
+  return `${API_ORIGIN}${url.startsWith("/") ? "" : "/"}${url}`;
+}
 
 export interface AuthUser {
   id: string;
@@ -22,34 +37,69 @@ export interface CreateComplaintPayload {
   longitude: number;
 }
 
+export interface EvidencePayload {
+  id: string;
+  complaintId?: string;
+  originalName?: string;
+  mimeType?: string;
+  type: "image" | "video" | "document";
+  fileSize?: number;
+  url: string;
+  uploadedAt: string;
+}
+
+export interface RawTimelinePayload {
+  id: string;
+  fromStatus?: string | null;
+  status: string;
+  actor: string;
+  actorRole?: string;
+  note?: string;
+  timestamp: string;
+}
+
 export interface CreatedComplaint {
   id: string;
   referenceId: string;
   title: string;
   description: string;
   category: string;
+  department?: string | null;
+  assignedOfficer?: AssignedOfficerInfo | null;
   address: string;
+  city?: string | null;
+  ward?: string | null;
   status: string;
   priority?: string | null;
   latitude: number;
   longitude: number;
+  evidence?: EvidencePayload[];
+  timeline?: RawTimelinePayload[];
+  intelligence?: ComplaintIntelligence | null;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface DuplicateCandidate {
   complaintId: string;
+  referenceId?: string | null;
+  title?: string | null;
   description: string;
   category: string;
+  canonicalCategory?: string | null;
   status: string;
   priority?: string | null;
+  ward?: string | null;
   latitude: number;
   longitude: number;
   createdAt: string;
   similarity: number;
+  combinedScore?: number;
   upvoteCount: number;
   distanceMeters: number | null;
+  daysApart?: number | null;
   categoryMatch: boolean;
+  matchReasons?: string[];
 }
 
 export interface DuplicateCheckResponse {
@@ -105,19 +155,80 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
 
+  classifyDraft: (payload: {
+    title: string;
+    description: string;
+    address?: string;
+    existingCategory?: string | null;
+  }) =>
+    request<{ data: ClassifyDraftResult }>("/intelligence/classify", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   createComplaint: (payload: CreateComplaintPayload) =>
     request<CreateComplaintResponse>("/complaints", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
 
+  uploadComplaintEvidence: async (
+    complaintId: string,
+    files: File[],
+  ): Promise<{ data: EvidenceFile[] }> => {
+    const formData = new FormData();
+    for (const file of files) {
+      formData.append("files", file);
+    }
+
+    const res = await request<{ data: EvidencePayload[] }>(
+      `/complaints/${encodeURIComponent(complaintId)}/evidence`,
+      {
+        method: "POST",
+        body: formData,
+      },
+    );
+
+    return {
+      data: res.data.map((e) => ({
+        id: e.id,
+        url: resolveAssetUrl(e.url),
+        type: e.type || "document",
+        originalName: e.originalName,
+        mimeType: e.mimeType,
+        fileSize: e.fileSize,
+        uploadedAt: e.uploadedAt,
+      })),
+    };
+  },
+
   checkDuplicates: (payload: {
+    title?: string;
     description: string;
     category: ComplaintCategory;
     latitude: number;
     longitude: number;
+    timeWindowDays?: number;
   }) =>
     request<DuplicateCheckResponse>("/intelligence/duplicate-check", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  submitAiFeedback: (payload: {
+    eventType:
+      | "DUPLICATE_SUGGESTION"
+      | "CLASSIFICATION_SUGGESTION"
+      | "PRIORITY_SUGGESTION"
+      | "TRIAGE_SUMMARY";
+    action: "ACCEPTED" | "MODIFIED" | "REJECTED";
+    complaintId?: string | null;
+    targetComplaintId?: string | null;
+    suggestedValue?: string | null;
+    finalValue?: string | null;
+    metadata?: Record<string, unknown>;
+  }) =>
+    request<{ data: unknown }>("/intelligence/feedback", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
@@ -138,15 +249,60 @@ export const api = {
   getComplaint: (id: string) =>
     request<{ data: CreatedComplaint }>(`/complaints/${id}`),
 
-  getNearbyComplaints: (lat: number, lng: number) =>
-    request<{ data: Complaint[] }>(
-      `/complaints/nearby?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`,
-    ),
+  getNearbyComplaints: (
+    lat: number,
+    lng: number,
+    radius = 5000,
+    category = "all",
+    city = "all",
+  ) => {
+    const params = new URLSearchParams({
+      lat: String(lat),
+      lng: String(lng),
+      radius: String(radius),
+    });
+    if (category && category !== "all") {
+      params.set("category", category);
+    }
+    if (city && city !== "all") {
+      params.set("city", city);
+    }
+    return request<{ data: NearbyComplaint[] }>(
+      `/complaints/nearby?${params.toString()}`,
+    );
+  },
+
+  getSpatialCities: async (): Promise<ActiveCitiesResponse> => {
+    const res = await request<{ success: boolean; data: ActiveCitiesResponse }>(
+      "/spatial/cities",
+    );
+    return res.data;
+  },
+
+  geocodePlace: async (query: string): Promise<GeocodeResponse> => {
+    const qs = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : "";
+    const res = await request<{ success: boolean; data: GeocodeResponse }>(
+      `/spatial/geocode${qs}`,
+    );
+    return res.data;
+  },
 
   getProfile: () => request<{ data: CitizenProfile }>("/users/me"),
 
   updateProfile: (payload: Partial<CitizenProfile>) =>
     request<{ data: CitizenProfile }>("/users/me", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  changePassword: (payload: { currentPassword: string; newPassword: string }) =>
+    request<{
+      data: {
+        id: string;
+        updatedAt: string;
+        message: string;
+      };
+    }>("/users/me/password", {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),

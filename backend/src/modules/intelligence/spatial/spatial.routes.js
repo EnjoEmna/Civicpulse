@@ -4,10 +4,22 @@ const authenticate = require("../../../middleware/authenticate");
 const authorize = require("../../../middleware/authorize");
 const PERMISSIONS = require("../../../domain/permissions");
 
-const { analyzeSpatialArea } = require("./spatial.controller");
+const {
+  analyzeSpatialArea,
+  detectHotspots,
+  getHotspots,
+  updateHotspotStatus,
+  getWardAnalytics,
+  getActiveCities,
+  geocodePlace,
+} = require("./spatial.controller");
 const { analyzeClusters } = require("./clustering.controller");
 
 const router = express.Router();
+
+router.get("/cities", authenticate, getActiveCities);
+
+router.get("/geocode", authenticate, geocodePlace);
 
 router.post(
   "/analyze",
@@ -21,6 +33,34 @@ router.post(
   authenticate,
   authorize(PERMISSIONS.SPATIAL_ANALYZE),
   analyzeClusters,
+);
+
+router.get(
+  "/hotspots",
+  authenticate,
+  authorize(PERMISSIONS.SPATIAL_ANALYZE),
+  getHotspots,
+);
+
+router.post(
+  "/hotspots/detect",
+  authenticate,
+  authorize(PERMISSIONS.SPATIAL_ANALYZE),
+  detectHotspots,
+);
+
+router.patch(
+  "/hotspots/:id/status",
+  authenticate,
+  authorize(PERMISSIONS.SPATIAL_ANALYZE),
+  updateHotspotStatus,
+);
+
+router.get(
+  "/wards",
+  authenticate,
+  authorize(PERMISSIONS.SPATIAL_ANALYZE),
+  getWardAnalytics,
 );
 
 module.exports = router;

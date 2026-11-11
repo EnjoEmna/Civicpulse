@@ -6,6 +6,9 @@ const spatialAnalyzeSchema = z.object({
   radiusMeters: z.number().int().min(50).max(50000).default(2000),
   maxResults: z.number().int().min(1).max(500).default(100),
   category: z.string().trim().min(1).max(50).optional(),
+  timeWindowDays: z.number().int().min(1).max(3650).optional(),
+  city: z.string().trim().min(1).max(100).optional(),
+  ward: z.string().trim().min(1).max(100).optional(),
 });
 
 module.exports = {

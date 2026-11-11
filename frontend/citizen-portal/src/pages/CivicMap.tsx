@@ -1,16 +1,37 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { MapPin, Funnel, CaretRight, Compass, X } from "@phosphor-icons/react";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  useMap,
+} from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import {
+  MapPin,
+  Funnel,
+  CaretRight,
+  Crosshair,
+  ArrowsClockwise,
+  ThumbsUp,
+  WarningCircle,
+  X,
+  MagnifyingGlass,
+  GlobeHemisphereEast,
+} from "@phosphor-icons/react";
 import { StatusBadge } from "../components/StatusBadge";
-import type { Complaint, ComplaintCategory } from "../types/complaint";
+import { api } from "../api/client";
+import type {
+  ActiveCitiesResponse,
+  ComplaintCategory,
+  ComplaintStatus,
+  GeocodePlaceResult,
+  NearbyComplaint,
+} from "../types/complaint";
 
-// TODO: replace with api.getNearbyComplaints(lat, lng)
-const MOCK_PINS: Complaint[] = [
-  { id: "CP-10482", title: "Large pothole near bus stop", description: "Deep road depression requiring patch repair", category: "roads", status: "in_progress", createdAt: "", updatedAt: "2026-09-06T14:00:00Z", location: { address: "4th Cross Rd, Banjara Hills", lat: 38, lng: 32 }, evidence: [], timeline: [] },
-  { id: "CP-10391", title: "Streetlight outage", description: "Column #14 dark for three nights", category: "electricity", status: "resolved", createdAt: "", updatedAt: "2026-08-27T11:00:00Z", location: { address: "Park Avenue", lat: 62, lng: 52 }, evidence: [], timeline: [] },
-  { id: "CP-10355", title: "Overflowing bin", description: "Bin overflow onto pedestrian walkway", category: "sanitation", status: "open", createdAt: "", updatedAt: "2026-09-08T08:30:00Z", location: { address: "Market Street", lat: 26, lng: 68 }, evidence: [], timeline: [] },
-  { id: "CP-10312", title: "Mainline water leak", description: "Potable supply pipe breach near junction", category: "water_supply", status: "open", createdAt: "", updatedAt: "2026-09-07T12:00:00Z", location: { address: "5th Main Rd", lat: 74, lng: 22 }, evidence: [], timeline: [] },
-];
+const DEFAULT_CENTER: [number, number] = [17.4156, 78.4357];
 
 const CATEGORY_LABELS: Record<ComplaintCategory, string> = {
   roads: "Roads",
@@ -21,121 +42,512 @@ const CATEGORY_LABELS: Record<ComplaintCategory, string> = {
   other: "Other",
 };
 
-export default function CivicMap() {
-  const [selected, setSelected] = useState<Complaint | null>(null);
-  const [categoryFilter, setCategoryFilter] = useState<ComplaintCategory | "all">("all");
+const RADIUS_OPTIONS = [
+  { value: 2000, label: "Within 2 km" },
+  { value: 5000, label: "Within 5 km" },
+  { value: 10000, label: "Within 10 km" },
+  { value: 25000, label: "Within 25 km" },
+  { value: 50000, label: "Citywide (50 km)" },
+];
 
-  const pins = MOCK_PINS.filter((p) => categoryFilter === "all" || p.category === categoryFilter);
+function mapStatus(status: string): ComplaintStatus {
+  switch (String(status).toUpperCase()) {
+    case "RESOLVED":
+      return "resolved";
+    case "REJECTED":
+      return "rejected";
+    case "UNDER_REVIEW":
+    case "ASSIGNED":
+    case "IN_PROGRESS":
+    case "NEEDS_INFORMATION":
+    case "DUPLICATE_SUSPECTED":
+      return "in_progress";
+    case "SUBMITTED":
+    default:
+      return "open";
+  }
+}
+
+function getStatusPinHex(status: string): string {
+  switch (mapStatus(status)) {
+    case "in_progress":
+      return "#2563eb";
+    case "resolved":
+      return "#10b981";
+    case "rejected":
+      return "#e11d48";
+    case "open":
+    default:
+      return "#f59e0b";
+  }
+}
+
+function createPinIcon(status: string, isSelected: boolean) {
+  const fill = getStatusPinHex(status);
+  const size = isSelected ? 32 : 24;
+  const ring = isSelected
+    ? "box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.28), 0 4px 12px rgba(15, 23, 42, 0.35);"
+    : "box-shadow: 0 3px 10px rgba(15, 23, 42, 0.28);";
+
+  return L.divIcon({
+    className: "citizen-map-pin",
+    html: `
+      <div style="
+        width: ${size}px;
+        height: ${size}px;
+        border-radius: 50% 50% 50% 0;
+        transform: rotate(-45deg);
+        background: ${fill};
+        border: 3px solid #ffffff;
+        ${ring}
+        transition: all 0.15s ease;
+      "></div>
+    `,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size],
+    popupAnchor: [0, -size],
+  });
+}
+
+function formatDistance(meters: number) {
+  if (!Number.isFinite(meters)) return "";
+  if (meters < 1000) return `${Math.round(meters)} m away`;
+  return `${(meters / 1000).toFixed(1)} km away`;
+}
+
+function formatCategoryName(raw: string) {
+  return raw
+    .toLowerCase()
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function MapViewportController({
+  center,
+  pins,
+  selected,
+}: {
+  center: [number, number];
+  pins: NearbyComplaint[];
+  selected: NearbyComplaint | null;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (selected) {
+      map.flyTo([selected.latitude, selected.longitude], 16, {
+        duration: 0.45,
+      });
+      return;
+    }
+
+    if (pins.length === 0) {
+      map.setView(center, 13);
+      return;
+    }
+
+    if (pins.length === 1) {
+      map.setView([pins[0].latitude, pins[0].longitude], 15);
+      return;
+    }
+
+    const bounds = L.latLngBounds(
+      pins.map((p) => [p.latitude, p.longitude] as [number, number]),
+    );
+    map.fitBounds(bounds, { padding: [44, 44], maxZoom: 15 });
+  }, [map, center, pins, selected]);
+
+  return null;
+}
+
+export default function CivicMap() {
+  const [center, setCenter] = useState<[number, number]>(DEFAULT_CENTER);
+  const [radiusMeters, setRadiusMeters] = useState<number>(25000);
+  const [categoryFilter, setCategoryFilter] = useState<ComplaintCategory | "all">("all");
+  const [cityFilter, setCityFilter] = useState<string>("all");
+  const [citiesData, setCitiesData] = useState<ActiveCitiesResponse | null>(null);
+
+  const [placeQuery, setPlaceQuery] = useState("");
+  const [placeResults, setPlaceResults] = useState<GeocodePlaceResult[]>([]);
+  const [searchingPlace, setSearchingPlace] = useState(false);
+
+  const [pins, setPins] = useState<NearbyComplaint[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [locating, setLocating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [upvotingId, setUpvotingId] = useState<string | null>(null);
+  const [upvoteNotice, setUpvoteNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .getSpatialCities()
+      .then(setCitiesData)
+      .catch(() => {});
+  }, []);
+
+  const loadNearby = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await api.getNearbyComplaints(
+        center[0],
+        center[1],
+        radiusMeters,
+        categoryFilter,
+        cityFilter,
+      );
+      const valid = (response.data || []).filter(
+        (item) =>
+          Number.isFinite(Number(item.latitude)) &&
+          Number.isFinite(Number(item.longitude)),
+      );
+      setPins(valid);
+      setSelectedId((prev) =>
+        prev && valid.some((item) => item.id === prev) ? prev : null,
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to fetch nearby civic issues from backend.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [center, radiusMeters, categoryFilter, cityFilter]);
+
+  useEffect(() => {
+    void loadNearby();
+  }, [loadNearby]);
+
+  function handleSelectCity(cityName: string) {
+    setCityFilter(cityName);
+    setSelectedId(null);
+    setPlaceResults([]);
+    if (cityName !== "all") {
+      const found = citiesData?.cities.find(
+        (c) => c.city.toLowerCase() === cityName.toLowerCase(),
+      );
+      if (found?.center) {
+        setCenter([found.center.latitude, found.center.longitude]);
+      }
+    }
+  }
+
+  async function handlePlaceSearch(e: FormEvent) {
+    e.preventDefault();
+    if (!placeQuery.trim()) {
+      setPlaceResults([]);
+      return;
+    }
+    setSearchingPlace(true);
+    try {
+      const res = await api.geocodePlace(placeQuery.trim());
+      setPlaceResults(res.results || []);
+    } catch {
+      setPlaceResults([]);
+    } finally {
+      setSearchingPlace(false);
+    }
+  }
+
+  function handlePickPlace(place: GeocodePlaceResult) {
+    setPlaceQuery(place.label);
+    setPlaceResults([]);
+    setSelectedId(null);
+    setCityFilter("all");
+    setCenter([place.latitude, place.longitude]);
+  }
+
+  function handleUseMyLocation() {
+    if (!navigator.geolocation) {
+      setError("Geolocation is not supported in this browser.");
+      return;
+    }
+
+    setLocating(true);
+    setError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setCityFilter("all");
+        setCenter([position.coords.latitude, position.coords.longitude]);
+        setSelectedId(null);
+        setLocating(false);
+      },
+      () => {
+        setError(
+          "Could not access browser location. Showing municipal center coordinates instead.",
+        );
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 8000 },
+    );
+  }
+
+  async function handleUpvote(item: NearbyComplaint) {
+    if (upvotingId) return;
+    setUpvotingId(item.id);
+    setUpvoteNotice(null);
+
+    try {
+      const res = await api.upvoteComplaint(item.id);
+      setPins((prev) =>
+        prev.map((pin) =>
+          pin.id === item.id ? { ...pin, upvoteCount: res.upvoteCount } : pin,
+        ),
+      );
+      setUpvoteNotice(res.message || "Support recorded.");
+    } catch (err) {
+      setUpvoteNotice(
+        err instanceof Error ? err.message : "Could not record upvote.",
+      );
+    } finally {
+      setUpvotingId(null);
+    }
+  }
+
+  const selected = useMemo(
+    () => pins.find((pin) => pin.id === selectedId) ?? null,
+    [pins, selectedId],
+  );
 
   return (
     <div className="space-y-5">
-      {/* Top Header & Filter Bar */}
+      {/* Header & Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-ink font-display">Civic Map</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-ink font-display">
+            Civic Map
+          </h1>
           <p className="text-xs font-medium text-ink-soft mt-0.5">
-            Geographic view of citizen reports and municipal service events
+            Live municipal reports near you — upvote active issues to boost priority
           </p>
         </div>
 
-        {/* Floating Category Filter Capsule */}
-        <div className="glass-pill inline-flex items-center gap-2 rounded-ios-xl border border-white/70 bg-white/50 px-3.5 py-1.5 shadow-sm backdrop-blur-md self-start sm:self-auto">
-          <Funnel size={14} className="text-primary font-bold" />
-          <span className="text-xs font-semibold text-ink-soft">Category:</span>
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value as ComplaintCategory | "all")}
-            className="bg-transparent text-xs font-bold text-ink focus:outline-none cursor-pointer pr-1"
-            aria-label="Filter by category"
+        <div className="relative flex flex-wrap items-center gap-2">
+          <form onSubmit={(e) => void handlePlaceSearch(e)} className="flex items-center gap-1.5">
+            <div className="relative">
+              <MagnifyingGlass
+                size={14}
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-soft"
+              />
+              <input
+                type="text"
+                value={placeQuery}
+                onChange={(e) => setPlaceQuery(e.target.value)}
+                placeholder="Search city or locality..."
+                aria-label="Search city or locality"
+                className="glass-pill w-44 rounded-ios-xl border border-white/70 bg-white/60 py-1.5 pl-8 pr-3 text-xs font-medium text-ink shadow-sm backdrop-blur-md focus:outline-none"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={searchingPlace}
+              className="glass-pill rounded-ios-xl border border-indigo-200 bg-indigo-50/90 px-2.5 py-1.5 text-xs font-bold text-indigo-800 hover:bg-indigo-100 cursor-pointer"
+            >
+              {searchingPlace ? "..." : "Go"}
+            </button>
+          </form>
+
+          {placeResults.length > 0 && (
+            <div className="absolute left-0 top-10 z-[1100] w-72 overflow-hidden rounded-2xl border border-white/80 bg-white/95 shadow-xl backdrop-blur-xl">
+              <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto">
+                {placeResults.map((place, idx) => (
+                  <li key={`${place.label}-${idx}`}>
+                    <button
+                      type="button"
+                      onClick={() => handlePickPlace(place)}
+                      className="flex w-full flex-col px-3 py-2 text-left text-xs hover:bg-blue-50/70 cursor-pointer"
+                    >
+                      <span className="font-semibold text-ink truncate">{place.label}</span>
+                      <span className="text-[10px] text-ink-soft">{place.city}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={handleUseMyLocation}
+            disabled={locating}
+            className="glass-pill inline-flex items-center gap-1.5 rounded-ios-xl border border-white/70 bg-white/60 px-3 py-1.5 text-xs font-semibold text-primary shadow-sm backdrop-blur-md hover:bg-white cursor-pointer disabled:opacity-60"
           >
-            <option value="all">All Categories ({MOCK_PINS.length})</option>
-            {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
+            <Crosshair size={14} weight="bold" />
+            {locating ? "Locating…" : "Use My Location"}
+          </button>
+
+          <div className="glass-pill inline-flex items-center gap-1.5 rounded-ios-xl border border-white/70 bg-white/60 px-3 py-1.5 shadow-sm backdrop-blur-md">
+            <GlobeHemisphereEast size={14} className="text-primary font-bold" />
+            <select
+              value={cityFilter}
+              onChange={(e) => handleSelectCity(e.target.value)}
+              className="bg-transparent text-xs font-bold text-ink focus:outline-none cursor-pointer pr-1"
+              aria-label="Filter by city"
+            >
+              <option value="all">By Radius (All Cities)</option>
+              {(citiesData?.cities || []).map((c) => (
+                <option key={c.city} value={c.city}>
+                  {c.city} ({c.complaintCount})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <select
+            value={radiusMeters}
+            onChange={(e) => setRadiusMeters(Number(e.target.value))}
+            className="glass-pill rounded-ios-xl border border-white/70 bg-white/60 px-3 py-1.5 text-xs font-bold text-ink shadow-sm backdrop-blur-md focus:outline-none cursor-pointer"
+            aria-label="Search radius"
+          >
+            {RADIUS_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
               </option>
             ))}
           </select>
+
+          <div className="glass-pill inline-flex items-center gap-1.5 rounded-ios-xl border border-white/70 bg-white/60 px-3 py-1.5 shadow-sm backdrop-blur-md">
+            <Funnel size={14} className="text-primary font-bold" />
+            <select
+              value={categoryFilter}
+              onChange={(e) =>
+                setCategoryFilter(e.target.value as ComplaintCategory | "all")
+              }
+              className="bg-transparent text-xs font-bold text-ink focus:outline-none cursor-pointer pr-1"
+              aria-label="Filter by category"
+            >
+              <option value="all">All Categories</option>
+              {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void loadNearby()}
+            disabled={loading}
+            className="glass-pill inline-flex items-center gap-1 rounded-ios-xl border border-white/70 bg-white/60 px-3 py-1.5 text-xs font-semibold text-ink-soft hover:text-ink cursor-pointer disabled:opacity-50"
+            title="Refresh map"
+          >
+            <ArrowsClockwise size={14} className={loading ? "animate-spin text-primary" : ""} />
+          </button>
         </div>
       </div>
 
-      {/* Main Grid: Map & Liquid Inspector Panel */}
-      <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
-        {/* Apple Maps Style Canvas Container */}
-        <div className="glass-panel relative h-[460px] overflow-hidden rounded-ios-3xl border border-white/70 shadow-ios-glass bg-slate-900/5">
-          {/* Subtle Grid / Topography Map Canvas */}
-          <div className="absolute inset-0 bg-[radial-gradient(#3b82f6_1px,transparent_1px)] [background-size:24px_24px] opacity-25" />
-          <div className="absolute inset-0 bg-[linear-gradient(to_right,#00000008_1px,transparent_1px),linear-gradient(to_bottom,#00000008_1px,transparent_1px)] bg-[size:4rem_4rem]" />
-
-          {/* Floating Compass Badge */}
-          <div className="glass-pill absolute top-3.5 left-3.5 z-10 inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-1.5 shadow-sm backdrop-blur-md">
-            <Compass size={16} weight="duotone" className="text-primary animate-spin-slow" />
-            <span className="text-xs font-bold text-ink">Banjara Hills Sector</span>
+      {error && (
+        <div
+          role="alert"
+          className="glass-panel flex items-center justify-between gap-3 rounded-ios-2xl border border-rose-400/40 p-4 text-xs text-rose-800"
+        >
+          <div className="flex items-center gap-2 font-semibold">
+            <WarningCircle size={18} weight="fill" className="text-rose-600" />
+            <span>{error}</span>
           </div>
+          <button
+            type="button"
+            onClick={() => void loadNearby()}
+            className="rounded-lg bg-white/80 px-3 py-1 font-semibold text-ink hover:bg-white cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
-          {/* Interactive Beacon Map Pins */}
-          {pins.map((p) => {
-            const isSelected = selected?.id === p.id;
-            return (
-              <button
-                key={p.id}
-                onClick={() => setSelected(p)}
-                style={{ left: `${p.location.lat}%`, top: `${p.location.lng}%` }}
-                className="group absolute -translate-x-1/2 -translate-y-full transition-all duration-200 focus:outline-none cursor-pointer z-20"
-                aria-label={p.title}
+      {/* Main Grid: Live Leaflet Map & Inspector */}
+      <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+        <div className="glass-panel relative h-[480px] overflow-hidden rounded-ios-3xl border border-white/70 shadow-ios-glass">
+          <MapContainer
+            center={center}
+            zoom={13}
+            scrollWheelZoom
+            className="h-full w-full z-0"
+          >
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+
+            <MapViewportController center={center} pins={pins} selected={selected} />
+
+            {pins.map((pin) => (
+              <Marker
+                key={pin.id}
+                position={[pin.latitude, pin.longitude]}
+                icon={createPinIcon(pin.status, pin.id === selectedId)}
+                eventHandlers={{
+                  click: () => {
+                    setSelectedId(pin.id);
+                    setUpvoteNotice(null);
+                  },
+                }}
               >
-                <div className="relative flex flex-col items-center">
-                  {/* Ping Animation on Selected */}
-                  {isSelected && (
-                    <span className="absolute -inset-1.5 rounded-full bg-blue-500/40 animate-ping" />
-                  )}
-
-                  <div
-                    className={`relative flex items-center justify-center rounded-full p-2 shadow-lg transition-transform active:scale-95 ${
-                      isSelected
-                        ? "bg-gradient-to-br from-blue-500 to-indigo-600 text-white scale-110 ring-4 ring-white/90 shadow-blue-500/40"
-                        : "bg-white text-primary border border-white/80 hover:scale-105 shadow-md group-hover:text-blue-600"
-                    }`}
-                  >
-                    <MapPin size={20} weight="fill" />
+                <Popup>
+                  <div className="min-w-[180px] space-y-1 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono font-bold text-primary">
+                        #{pin.referenceId}
+                      </span>
+                      <span className="text-[11px] font-semibold text-slate-600">
+                        {formatDistance(pin.distanceMeters)}
+                      </span>
+                    </div>
+                    <p className="font-bold text-slate-900">{pin.title}</p>
+                    <p className="text-slate-600">
+                      {pin.address}
+                      {pin.city ? ` · ${pin.city}` : ""}
+                    </p>
+                    <p className="font-semibold text-blue-700">
+                      {pin.upvoteCount} citizen support
+                      {pin.upvoteCount === 1 ? "" : "s"}
+                    </p>
                   </div>
+                </Popup>
+              </Marker>
+            ))}
+          </MapContainer>
 
-                  {/* Pin label preview */}
-                  <span
-                    className={`mt-1 whitespace-nowrap rounded-md px-2 py-0.5 text-[10px] font-bold shadow-sm backdrop-blur-md border ${
-                      isSelected
-                        ? "bg-ink text-white border-white/20"
-                        : "bg-white/80 text-ink border-white/60 opacity-0 group-hover:opacity-100 transition-opacity"
-                    }`}
-                  >
-                    {p.title}
-                  </span>
-                </div>
-              </button>
-            );
-          })}
+          <span className="pointer-events-none absolute bottom-3.5 left-3.5 z-[1000] rounded-full border border-white/70 bg-white/85 px-3 py-1.5 text-[11px] font-semibold text-ink shadow-md backdrop-blur-md">
+            {loading
+              ? "Loading nearby issues…"
+              : `${pins.length} issue${pins.length === 1 ? "" : "s"} within ${(radiusMeters / 1000).toFixed(0)} km`}
+          </span>
 
-          {/* Bottom Floating Legend / Note */}
-          <div className="glass-pill absolute bottom-3.5 left-3.5 right-3.5 sm:right-auto z-10 rounded-full border border-white/70 bg-white/70 px-3.5 py-1.5 shadow-sm backdrop-blur-md">
-            <span className="text-[11px] font-medium text-ink-soft">
-              Interactive sample pins · Click any pin or list item to inspect details
-            </span>
+          <div className="pointer-events-none absolute right-3.5 top-3.5 z-[1000] flex flex-col gap-1 rounded-2xl border border-white/70 bg-white/85 p-2.5 text-[11px] shadow-md backdrop-blur-md">
+            <Legend dotClass="bg-amber-500" label="Open" />
+            <Legend dotClass="bg-blue-600" label="In Progress" />
+            <Legend dotClass="bg-emerald-500" label="Resolved" />
+            <Legend dotClass="bg-rose-600" label="Rejected" />
           </div>
         </div>
 
-        {/* Liquid Glass Inspector / Side Drawer */}
-        <div className="glass-panel flex flex-col rounded-ios-2xl border border-white/70 p-5 shadow-ios-glass min-h-[300px]">
+        {/* Liquid Glass Inspector / List */}
+        <div className="glass-panel flex flex-col rounded-ios-2xl border border-white/70 p-5 shadow-ios-glass min-h-[320px] max-h-[480px]">
           {selected ? (
-            <div className="flex flex-col justify-between h-full gap-4">
+            <div className="flex flex-col justify-between h-full gap-4 overflow-y-auto">
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs font-bold text-ink-soft/80 bg-white/50 border border-white/70 px-2 py-0.5 rounded-md backdrop-blur-sm">
-                    #{selected.id}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs font-bold text-primary bg-white/60 border border-white/80 px-2 py-0.5 rounded-md">
+                    #{selected.referenceId}
                   </span>
                   <div className="flex items-center gap-1.5">
-                    <StatusBadge status={selected.status} />
+                    <StatusBadge status={mapStatus(selected.status)} />
                     <button
-                      onClick={() => setSelected(null)}
-                      className="rounded-full p-1 text-ink-soft hover:bg-white/50 hover:text-ink transition-colors"
+                      type="button"
+                      onClick={() => {
+                        setSelectedId(null);
+                        setUpvoteNotice(null);
+                      }}
+                      className="rounded-full p-1 text-ink-soft hover:bg-white/60 hover:text-ink cursor-pointer"
                       title="Close"
                     >
                       <X size={15} />
@@ -144,68 +556,150 @@ export default function CivicMap() {
                 </div>
 
                 <div>
-                  <h3 className="text-base font-bold text-ink font-display">{selected.title}</h3>
-                  <p className="text-xs text-ink-soft mt-1 leading-relaxed">{selected.description}</p>
+                  <h3 className="text-base font-bold text-ink font-display">
+                    {selected.title}
+                  </h3>
+                  <p className="text-xs text-ink-soft mt-1 leading-relaxed">
+                    {selected.aiSummary || selected.description}
+                  </p>
                 </div>
 
-                <div className="rounded-ios-xl border border-white/60 bg-white/30 p-3 backdrop-blur-sm space-y-1.5">
-                  <div className="flex items-center gap-1.5 text-xs text-ink font-semibold">
+                <div className="rounded-ios-xl border border-white/60 bg-white/40 p-3 space-y-1.5 text-xs">
+                  <div className="flex items-center gap-1.5 text-ink font-semibold">
                     <MapPin size={14} className="text-primary shrink-0" />
-                    <span className="truncate">{selected.location.address}</span>
+                    <span className="truncate">{selected.address}</span>
                   </div>
-                  <span className="text-[11px] text-ink-soft block capitalize">
-                    Category: <strong className="text-ink">{selected.category.replace("_", " ")}</strong>
-                  </span>
+                  {(selected.city || selected.ward) && (
+                    <span className="text-[11px] font-medium text-indigo-700 block">
+                      {[selected.ward, selected.city].filter(Boolean).join(" · ")}
+                    </span>
+                  )}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-ink-soft">
+                    <span>
+                      Category:{" "}
+                      <strong className="text-ink">
+                        {formatCategoryName(selected.category)}
+                      </strong>
+                    </span>
+                    <span className="font-semibold text-primary">
+                      {formatDistance(selected.distanceMeters)}
+                    </span>
+                  </div>
+                  {selected.department && (
+                    <span className="text-[11px] text-ink-soft block">
+                      Dept: <strong className="text-ink">{selected.department}</strong>
+                    </span>
+                  )}
                 </div>
+
+                {upvoteNotice && (
+                  <p className="rounded-xl border border-blue-200 bg-blue-500/10 px-3 py-2 text-[11px] font-semibold text-blue-800">
+                    {upvoteNotice}
+                  </p>
+                )}
               </div>
 
-              <div className="pt-3 border-t border-white/40 flex items-center justify-between gap-2">
-                <button
-                  onClick={() => setSelected(null)}
-                  className="text-xs font-semibold text-ink-soft hover:text-ink transition-colors"
-                >
-                  Clear Selection
-                </button>
-                <Link
-                  to={`/complaints/${selected.id}`}
-                  className="ios-btn-primary inline-flex items-center gap-1 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm"
-                >
-                  <span>Full Details</span>
-                  <CaretRight size={13} weight="bold" />
-                </Link>
+              <div className="pt-3 border-t border-white/40 flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    disabled={upvotingId === selected.id}
+                    onClick={() => void handleUpvote(selected)}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-blue-300/70 bg-blue-500/10 px-3.5 py-2 text-xs font-bold text-blue-800 hover:bg-blue-500/20 disabled:opacity-60 cursor-pointer"
+                  >
+                    <ThumbsUp size={14} weight="fill" />
+                    {upvotingId === selected.id
+                      ? "Saving…"
+                      : `Support (${selected.upvoteCount})`}
+                  </button>
+
+                  {selected.isOwnComplaint ? (
+                    <Link
+                      to={`/complaints/${selected.id}`}
+                      className="ios-btn-primary inline-flex items-center gap-1 px-3.5 py-2 text-xs font-semibold text-white shadow-sm"
+                    >
+                      <span>Full Details</span>
+                      <CaretRight size={13} weight="bold" />
+                    </Link>
+                  ) : (
+                    <span className="text-[11px] font-medium text-ink-soft">
+                      Community report
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           ) : (
-            <div className="flex flex-col h-full">
-              <div className="flex items-center justify-between mb-3">
+            <div className="flex flex-col h-full min-h-0">
+              <div className="flex items-center justify-between mb-3 shrink-0">
                 <h2 className="text-xs font-bold uppercase tracking-wider text-ink-soft">
                   Nearby Reports ({pins.length})
                 </h2>
-                <span className="text-[11px] font-semibold text-primary">Ward 12</span>
+                <span className="text-[11px] font-semibold text-primary">
+                  {(radiusMeters / 1000).toFixed(0)} km radius
+                </span>
               </div>
 
-              <ul className="flex flex-col gap-2 overflow-y-auto pr-1 flex-1">
-                {pins.map((p) => (
-                  <li key={p.id}>
-                    <button
-                      onClick={() => setSelected(p)}
-                      className="group flex w-full flex-col gap-1.5 rounded-ios-xl border border-white/60 bg-white/30 p-3 text-left transition-all duration-150 hover:bg-white/60 hover:shadow-sm hover:border-white active:scale-[0.99]"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-ink group-hover:text-primary transition-colors truncate max-w-[170px]">
-                          {p.title}
-                        </span>
-                        <StatusBadge status={p.status} />
-                      </div>
-                      <span className="text-[11px] text-ink-soft truncate">{p.location.address}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              {loading ? (
+                <div className="flex flex-1 items-center justify-center gap-2 text-xs text-ink-soft">
+                  <ArrowsClockwise size={16} className="animate-spin text-primary" />
+                  Scanning nearby reports…
+                </div>
+              ) : pins.length === 0 ? (
+                <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center py-10">
+                  <MapPin size={26} weight="duotone" className="text-ink-soft/60" />
+                  <p className="text-xs font-semibold text-ink">
+                    No nearby issues found
+                  </p>
+                  <p className="text-[11px] text-ink-soft">
+                    Try expanding the radius filter or switching category.
+                  </p>
+                </div>
+              ) : (
+                <ul className="flex flex-1 flex-col gap-2 overflow-y-auto pr-1">
+                  {pins.map((pin) => (
+                    <li key={pin.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedId(pin.id);
+                          setUpvoteNotice(null);
+                        }}
+                        className="group flex w-full flex-col gap-1 rounded-ios-xl border border-white/60 bg-white/35 p-3 text-left transition-all duration-150 hover:bg-white/65 hover:shadow-sm hover:border-white cursor-pointer"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-bold text-ink group-hover:text-primary transition-colors truncate">
+                            {pin.title}
+                          </span>
+                          <StatusBadge status={mapStatus(pin.status)} />
+                        </div>
+                        <div className="flex items-center justify-between gap-2 text-[11px] text-ink-soft">
+                          <span className="truncate">
+                            {pin.city ? `${pin.city} · ` : ""}
+                            {pin.address}
+                          </span>
+                          <span className="shrink-0 font-semibold text-primary">
+                            {formatDistance(pin.distanceMeters)}
+                          </span>
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+function Legend({ dotClass, label }: { dotClass: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5 font-medium text-ink-soft">
+      <span className={`h-2 w-2 rounded-full ${dotClass}`} />
+      {label}
+    </span>
   );
 }

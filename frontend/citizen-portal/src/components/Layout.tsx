@@ -1,12 +1,18 @@
 import { NavLink, useLocation, useOutlet } from "react-router-dom";
-import { House, FileText, ClipboardText, MapPin, User } from "@phosphor-icons/react";
+import {
+  House,
+  FileText,
+  ClipboardText,
+  MapPin,
+  User,
+} from "@phosphor-icons/react";
 import { AnimatePresence, motion } from "framer-motion";
 
 const NAV_ITEMS = [
   { to: "/", label: "Home", icon: House, end: true },
   { to: "/report", label: "Report Issue", icon: FileText, end: false },
   { to: "/complaints", label: "My Complaints", icon: ClipboardText, end: false },
-  // { to: "/map", label: "Civic Map", icon: MapPin, end: false },
+  { to: "/map", label: "Civic Map", icon: MapPin, end: false },
   { to: "/profile", label: "Profile", icon: User, end: false },
 ];
 
@@ -70,7 +76,7 @@ export function Layout() {
               exit={{ opacity: 0, y: -10, filter: "blur(4px)" }}
               transition={{
                 duration: 0.25,
-                ease: [0.16, 1, 0.3, 1], // Apple iOS smooth cubic-bezier
+                ease: [0.16, 1, 0.3, 1],
               }}
               className="w-full"
             >
@@ -91,13 +97,19 @@ export function Layout() {
             to={to}
             end={end}
             className={({ isActive }) =>
-              `flex flex-col items-center gap-1 py-2 text-[11px] font-semibold transition-all ${
+              `flex flex-col items-center gap-1 py-2 text-[10px] font-semibold transition-all ${
                 isActive ? "text-blue-600" : "text-ink-soft/75 hover:text-ink"
               }`
             }
           >
-            <Icon size={21} weight="duotone" />
-            {label === "Report Issue" ? "Report" : label === "My Complaints" ? "Complaints" : label}
+            <Icon size={20} weight="duotone" />
+            {label === "Report Issue"
+              ? "Report"
+              : label === "My Complaints"
+                ? "Complaints"
+                : label === "Civic Map"
+                  ? "Map"
+                  : label}
           </NavLink>
         ))}
       </nav>

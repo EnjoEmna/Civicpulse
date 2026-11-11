@@ -24,9 +24,18 @@ const updateComplaintStatusSchema = z.object({
     "NEEDS_INFORMATION",
     "DUPLICATE_SUSPECTED",
   ]),
+  note: z.string().trim().max(2000).optional(),
+  assignedOfficerId: z.string().uuid().nullable().optional(),
+  possibleDuplicateOfId: z.string().uuid().nullable().optional(),
+});
+
+const assignComplaintSchema = z.object({
+  assignedOfficerId: z.string().uuid().nullable(),
+  note: z.string().trim().max(2000).optional(),
 });
 
 module.exports = {
   createComplaintSchema,
   updateComplaintStatusSchema,
+  assignComplaintSchema,
 };

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   User,
   Envelope,
@@ -7,6 +7,9 @@ import {
   SignOut,
   IdentificationCard,
   ArrowClockwise,
+  LockKey,
+  CheckCircle,
+  WarningCircle,
 } from "@phosphor-icons/react";
 import { api } from "../api/client";
 import type { CurrentUserProfile } from "../types/complaint";
@@ -16,13 +19,20 @@ export default function Profile() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState("");
+
   async function loadProfile() {
     setLoading(true);
     setError("");
 
     try {
       const response = await api.getProfile();
-      setProfile(response.data as CurrentUserProfile);
+      setProfile(response.data as unknown as CurrentUserProfile);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Unable to load your profile.",
@@ -36,8 +46,52 @@ export default function Profile() {
     void loadProfile();
   }, []);
 
+  async function handlePasswordSubmit(e: FormEvent) {
+    e.preventDefault();
+    setPasswordError("");
+    setPasswordSuccess("");
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordError("Complete all password fields to continue.");
+      return;
+    }
+    if (newPassword.length < 8) {
+      setPasswordError("New password must be at least 8 characters long.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError("New password and confirmation do not match.");
+      return;
+    }
+    if (newPassword === currentPassword) {
+      setPasswordError("New password must differ from your current password.");
+      return;
+    }
+
+    setPasswordLoading(true);
+    try {
+      const result = await api.changePassword({
+        currentPassword,
+        newPassword,
+      });
+      setPasswordSuccess(
+        result.data.message || "Password updated successfully.",
+      );
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err) {
+      setPasswordError(
+        err instanceof Error ? err.message : "Failed to update password.",
+      );
+    } finally {
+      setPasswordLoading(false);
+    }
+  }
+
   function handleLogout() {
     localStorage.removeItem("cp_citizen_token");
+    localStorage.removeItem("cp_citizen_profile");
     window.location.href = "/login";
   }
 
@@ -76,7 +130,7 @@ export default function Profile() {
       .trim()
       .split(/\s+/)
       .filter(Boolean)
-      .map((part) => part[0])
+      .map((part: string) => part[0])
       .join("")
       .slice(0, 2)
       .toUpperCase() || "C";
@@ -139,13 +193,6 @@ export default function Profile() {
           icon={<IdentificationCard size={17} weight="duotone" />}
         />
 
-        {/* <ReadOnlyField
-          label="Account ID"
-          value={profile.id}
-          icon={<ShieldCheck size={17} weight="duotone" />}
-          monospace
-        /> */}
-
         <ReadOnlyField
           label="Member since"
           value={registeredDate}
@@ -153,18 +200,104 @@ export default function Profile() {
         />
       </section>
 
+      <section className="glass-panel space-y-4 rounded-ios-2xl border border-white/70 p-6 shadow-ios-glass sm:p-7">
+        <div className="flex items-center gap-2">
+          <LockKey size={18} weight="duotone" className="text-primary" />
+          <div>
+            <h2 className="text-base font-bold text-ink">Change Password</h2>
+            <p className="text-xs text-ink-soft">
+              Update your password anytime using your current credentials.
+            </p>
+          </div>
+        </div>
+
+        {passwordSuccess && (
+          <div
+            role="status"
+            className="flex items-center gap-2 rounded-xl border border-emerald-400/40 bg-emerald-500/15 px-3.5 py-2.5 text-xs font-semibold text-emerald-800"
+          >
+            <CheckCircle size={16} weight="fill" />
+            <span>{passwordSuccess}</span>
+          </div>
+        )}
+
+        {passwordError && (
+          <div
+            role="alert"
+            className="flex items-center gap-2 rounded-xl border border-rose-400/40 bg-rose-500/15 px-3.5 py-2.5 text-xs font-semibold text-rose-800"
+          >
+            <WarningCircle size={16} weight="fill" />
+            <span>{passwordError}</span>
+          </div>
+        )}
+
+        <form onSubmit={handlePasswordSubmit} className="space-y-3.5" noValidate>
+          <div className="space-y-1">
+            <label htmlFor="currentPassword" className="text-xs font-semibold text-ink">
+              Current password
+            </label>
+            <input
+              id="currentPassword"
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              className="glass-input w-full rounded-ios-xl px-3.5 py-2.5 text-sm"
+              placeholder="Enter current password"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label htmlFor="newPassword" className="text-xs font-semibold text-ink">
+              New password (minimum 8 characters)
+            </label>
+            <input
+              id="newPassword"
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="glass-input w-full rounded-ios-xl px-3.5 py-2.5 text-sm"
+              placeholder="Create a new password"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label htmlFor="confirmPassword" className="text-xs font-semibold text-ink">
+              Confirm new password
+            </label>
+            <input
+              id="confirmPassword"
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="glass-input w-full rounded-ios-xl px-3.5 py-2.5 text-sm"
+              placeholder="Re-enter new password"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={passwordLoading}
+            className="ios-btn-primary w-full py-2.5 text-xs font-bold text-white shadow-md disabled:opacity-60 cursor-pointer"
+          >
+            {passwordLoading ? "Updating password..." : "Update Password"}
+          </button>
+        </form>
+      </section>
+
       <div className="rounded-ios-xl border border-blue-200/60 bg-blue-500/5 p-4">
         <p className="text-xs leading-relaxed text-ink-soft">
-          Your account details are read-only in CivicPulse. This helps keep your
-          identity consistent with the account used to register and track civic
-          complaints.
+          Your profile identity details remain read-only in CivicPulse to keep your
+          submitted complaint records consistent.
         </p>
       </div>
 
       <button
         type="button"
         onClick={handleLogout}
-        className="flex w-full items-center justify-center gap-2 rounded-ios-xl border border-rose-300/50 bg-rose-500/10 py-3 text-xs font-bold text-rose-700 shadow-sm transition-all hover:bg-rose-500/20 active:scale-[0.99]"
+        className="flex w-full items-center justify-center gap-2 rounded-ios-xl border border-rose-300/50 bg-rose-500/10 py-3 text-xs font-bold text-rose-700 shadow-sm transition-all hover:bg-rose-500/20 active:scale-[0.99] cursor-pointer"
       >
         <SignOut size={16} weight="bold" />
         Sign Out from Citizen Portal
