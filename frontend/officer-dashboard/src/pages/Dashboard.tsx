@@ -8,6 +8,7 @@ import {
   WarningCircle,
   ArrowRight,
   ArrowsClockwise,
+  Heartbeat,
   Sparkle,
 } from "@phosphor-icons/react";
 import { ComplaintList } from "../components/ComplaintList";
@@ -20,6 +21,7 @@ import type {
   Layer1MetricsResponse,
 } from "../types/complaint";
 import type { HotspotListResponse } from "../types/spatial";
+import type { InfrastructureOverviewResponse } from "../types/infrastructure";
 
 const cardVariants = {
   hidden: { opacity: 0, y: 16 },
@@ -44,6 +46,8 @@ export default function Dashboard() {
   const [jobsData, setJobsData] = useState<BackgroundJobsResponse | null>(null);
   const [layer1Metrics, setLayer1Metrics] = useState<Layer1MetricsResponse | null>(null);
   const [hotspotSummary, setHotspotSummary] = useState<HotspotListResponse | null>(null);
+  const [infraOverview, setInfraOverview] =
+    useState<InfrastructureOverviewResponse | null>(null);
   const [runningJobs, setRunningJobs] = useState(false);
   const [jobsNotice, setJobsNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -61,6 +65,7 @@ export default function Dashboard() {
         intelligenceJobsRes,
         metricsRes,
         hotspotsRes,
+        infraRes,
       ] = await Promise.all([
         api.getDashboardStats(),
         api.getQueue({ limit: 5 }),
@@ -68,6 +73,7 @@ export default function Dashboard() {
         api.getIntelligenceJobs(5).catch(() => null),
         api.getIntelligenceMetrics().catch(() => null),
         api.getHotspots({ status: "ACTIVE", limit: 25 }).catch(() => null),
+        api.getInfrastructureHealth({ limit: 12 }).catch(() => null),
       ]);
 
       setStats(statsRes);
@@ -78,6 +84,7 @@ export default function Dashboard() {
       setJobsData(intelligenceJobsRes);
       setLayer1Metrics(metricsRes);
       setHotspotSummary(hotspotsRes);
+      setInfraOverview(infraRes);
     } catch (err) {
       setError(
         err instanceof Error
@@ -451,6 +458,89 @@ export default function Dashboard() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Compact Infrastructure Health Snapshot */}
+      {!loading && !error && infraOverview && infraOverview.assets.length > 0 && (
+        <div className="glass-panel flex flex-col gap-3.5 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm">
+                <Heartbeat size={17} weight="fill" />
+              </div>
+              <div>
+                <h2 className="text-xs font-bold uppercase tracking-wider text-ink">
+                  Infrastructure Health Snapshot
+                </h2>
+                <p className="text-[11px] text-ink-soft">
+                  Network avg{" "}
+                  <strong className="font-mono text-ink">
+                    {infraOverview.summary.avgHealthScore ?? "—"}/100
+                  </strong>{" "}
+                  · {infraOverview.summary.gradeCounts.CRITICAL} critical ·{" "}
+                  {infraOverview.summary.gradeCounts.POOR} poor ·{" "}
+                  {infraOverview.summary.maintenanceOverdueCount} overdue maintenance
+                </p>
+              </div>
+            </div>
+
+            <Link
+              to="/officer/infrastructure-health"
+              className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/80 bg-white/75 px-3 py-1 text-xs font-bold text-emerald-800 shadow-sm transition hover:bg-white"
+            >
+              Open Health Monitor <ArrowRight size={13} weight="bold" />
+            </Link>
+          </div>
+
+          <div className="grid gap-2.5 sm:grid-cols-3">
+            {infraOverview.assets.slice(0, 3).map((asset) => {
+              const badgeCls =
+                asset.healthGrade === "CRITICAL"
+                  ? "border-rose-300 bg-rose-500/15 text-rose-800"
+                  : asset.healthGrade === "POOR"
+                    ? "border-amber-300 bg-amber-500/15 text-amber-900"
+                    : asset.healthGrade === "FAIR"
+                      ? "border-sky-300 bg-sky-500/15 text-sky-900"
+                      : "border-emerald-300 bg-emerald-500/15 text-emerald-800";
+
+              return (
+                <Link
+                  key={asset.id}
+                  to={`/officer/infrastructure-health?assetId=${encodeURIComponent(asset.id)}`}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-white/75 bg-white/60 px-3.5 py-2.5 transition hover:border-blue-300 hover:bg-white/90"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-[11px] font-extrabold text-primary">
+                        {asset.assetCode}
+                      </span>
+                      <span
+                        className={`rounded-full border px-1.5 py-0.5 text-[9px] font-extrabold ${badgeCls}`}
+                      >
+                        {asset.healthGrade}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 truncate text-xs font-bold text-ink">
+                      {asset.name}
+                    </p>
+                    <p className="truncate text-[10px] text-ink-soft">
+                      {[asset.ward, asset.city].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
+
+                  <div className="shrink-0 text-right">
+                    <span className="font-mono text-lg font-extrabold text-ink">
+                      {asset.healthScore}
+                    </span>
+                    <span className="block text-[9px] font-semibold uppercase text-ink-soft">
+                      / 100
+                    </span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
         </div>
       )}
 

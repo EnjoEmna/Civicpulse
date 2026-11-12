@@ -1,5 +1,6 @@
 const clusteringService = require("./clustering.service");
 const hotspotRepository = require("../../../repositories/hotspot.repository");
+const graphBuilder = require("../graph/graph-builder.service");
 const {
   KNOWN_CITY_HUBS,
   haversineMeters,
@@ -159,6 +160,13 @@ async function detectAndPersistHotspots(options = {}) {
   });
 
   const hotspots = persistedHotspots.map(serializeHotspotRow);
+
+  if (!options.skipGraphSync && process.env.NODE_ENV !== "test") {
+    graphBuilder
+      .syncKnowledgeGraph({ city: options.city || null })
+      .catch(() => {});
+  }
+
   return {
     detectedCount: clusteringResult.clusters.length,
     persistedCount: savedIds.length,
@@ -205,7 +213,13 @@ async function changeHotspotStatus(id, status) {
   }
   const full = await hotspotRepository.listHotspots({ limit: 100 });
   const matched = full.find((h) => h.id === id);
-  return matched ? serializeHotspotRow(matched) : serializeHotspotRow(updated);
+  const serialized = matched ? serializeHotspotRow(matched) : serializeHotspotRow(updated);
+  if (process.env.NODE_ENV !== "test") {
+    graphBuilder
+      .syncKnowledgeGraph({ city: serialized.city || null })
+      .catch(() => {});
+  }
+  return serialized;
 }
 
 async function getWardAnalytics({

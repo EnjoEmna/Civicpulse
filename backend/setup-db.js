@@ -10,6 +10,8 @@ const pool = require("./src/config/database");
 const { resolveWardAndZone } = require("./src/modules/intelligence/spatial/ward.resolver");
 const { backfillUnenrichedComplaints } = require("./src/jobs/retry.job");
 const { detectAndPersistHotspots } = require("./src/modules/intelligence/spatial/hotspot.service");
+const { recalculateInfrastructureHealth } = require("./src/modules/intelligence/infrastructure/infrastructure.service");
+const { syncKnowledgeGraph } = require("./src/modules/intelligence/graph/graph-builder.service");
 
 async function setup() {
   console.log("Checking PostgreSQL connection...");
@@ -473,9 +475,377 @@ async function setup() {
     cityWide: true,
     clusterDistanceMeters: 150,
     minClusterSize: 2,
+    skipGraphSync: true,
   });
   console.log(
     `Layer 2 hotspots synced: detected=${hotspotSummary.detectedCount}, overlaps=${hotspotSummary.crossCategoryOverlapCount}`,
+  );
+
+  // 9. Idempotently seed Layer 3 infrastructure assets & maintenance history across active cities
+  const nowMs = Date.now();
+  const daysAgo = (days) => new Date(nowMs - days * 24 * 60 * 60 * 1000).toISOString();
+  const monthsAgoDate = (months) =>
+    new Date(nowMs - months * 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const sampleAssets = [
+    {
+      assetCode: "RD-HYD-1024",
+      name: "Road R-1024 · 4th Cross Bus Shelter Corridor",
+      assetType: "ROAD_SEGMENT",
+      city: "Hyderabad",
+      ward: "Ward 12 - Banjara Hills",
+      zone: "Central Zone",
+      address: "4th Cross Rd, Banjara Hills, Hyderabad",
+      lat: 17.4157,
+      lng: 78.4358,
+      radius: 300,
+      department: "Roads & Public Works",
+      installDate: monthsAgoDate(48),
+      maintainedDaysAgo: 245,
+      maintenanceType: "RESURFACING",
+      maintenanceNotes: "Asphalt patch and micro-surfacing along 4th Cross junction",
+    },
+    {
+      assetCode: "WP-HYD-204",
+      name: "Pipeline P-204 · 4th Cross Distribution Main",
+      assetType: "WATER_PIPELINE",
+      city: "Hyderabad",
+      ward: "Ward 12 - Banjara Hills",
+      zone: "Central Zone",
+      address: "4th Cross Rd Water Feeder, Banjara Hills",
+      lat: 17.4161,
+      lng: 78.4362,
+      radius: 220,
+      department: "Water Supply & Drainage",
+      installDate: monthsAgoDate(72),
+      maintainedDaysAgo: 280,
+      maintenanceType: "INSPECTION",
+      maintenanceNotes: "Pressure valve check and joint sealing",
+    },
+    {
+      assetCode: "WP-HYD-310",
+      name: "Lakeview Colony Trunk Water Pipeline",
+      assetType: "WATER_PIPELINE",
+      city: "Hyderabad",
+      ward: "Ward 14 - Lakeview Colony",
+      zone: "Central Zone",
+      address: "Lakeview Colony, Main Road, Hyderabad",
+      lat: 17.4184,
+      lng: 78.4393,
+      radius: 260,
+      department: "Water Supply & Drainage",
+      installDate: monthsAgoDate(60),
+      maintainedDaysAgo: 210,
+      maintenanceType: "REPAIR",
+      maintenanceNotes: "Main coupling clamp tightened after pressure surge",
+    },
+    {
+      assetCode: "SL-HYD-084",
+      name: "Govt. School Rd LED Streetlight Cluster",
+      assetType: "STREETLIGHT_CLUSTER",
+      city: "Hyderabad",
+      ward: "Ward 08 - School Road Sector",
+      zone: "West Zone",
+      address: "Govt. School Rd, Sector 4, Hyderabad",
+      lat: 17.4114,
+      lng: 78.4314,
+      radius: 260,
+      department: "Electricity & Street Lighting",
+      installDate: monthsAgoDate(36),
+      maintainedDaysAgo: 150,
+      maintenanceType: "PREVENTIVE_MAINTENANCE",
+      maintenanceNotes: "Replaced timer relay on Feeder Pillar B",
+    },
+    {
+      assetCode: "SN-HYD-019",
+      name: "Community Park Gate 2 Waste Transfer Point",
+      assetType: "WASTE_POINT",
+      city: "Hyderabad",
+      ward: "Ward 14 - Lakeview Colony",
+      zone: "Central Zone",
+      address: "Community Park Gate 2, Hyderabad",
+      lat: 17.4201,
+      lng: 78.4423,
+      radius: 220,
+      department: "Sanitation & Solid Waste",
+      installDate: monthsAgoDate(30),
+      maintainedDaysAgo: 75,
+      maintenanceType: "CLEANING",
+      maintenanceNotes: "Bin washdown and compactor pad servicing",
+    },
+    {
+      assetCode: "DR-HYD-112",
+      name: "Road No. 12 Stormwater Box Culvert",
+      assetType: "DRAINAGE",
+      city: "Hyderabad",
+      ward: "Ward 12 - Banjara Hills",
+      zone: "Central Zone",
+      address: "Road No. 12, Banjara Hills, Hyderabad",
+      lat: 17.4139,
+      lng: 78.4482,
+      radius: 180,
+      department: "Water Supply & Drainage",
+      installDate: monthsAgoDate(24),
+      maintainedDaysAgo: 25,
+      maintenanceType: "CLEANING",
+      maintenanceNotes: "Pre-monsoon desilting and grating inspection completed",
+    },
+    {
+      assetCode: "RD-TVM-066",
+      name: "NH-66 Kalambalam Junction Carriageway",
+      assetType: "ROAD_SEGMENT",
+      city: "Thiruvananthapuram",
+      ward: "Kalambalam Ward",
+      zone: "Thiruvananthapuram Rural Zone",
+      address: "Kalambalam Junction, NH-66, Thiruvananthapuram",
+      lat: 8.7629,
+      lng: 76.7915,
+      radius: 350,
+      department: "Roads & Public Works",
+      installDate: monthsAgoDate(54),
+      maintainedDaysAgo: 230,
+      maintenanceType: "RESURFACING",
+      maintenanceNotes: "Cold-mix pothole filling prior to rainy season",
+    },
+    {
+      assetCode: "WP-TVM-108",
+      name: "Kalambalam Bus Stand Feeder Pipeline",
+      assetType: "WATER_PIPELINE",
+      city: "Thiruvananthapuram",
+      ward: "Kalambalam Ward",
+      zone: "Thiruvananthapuram Rural Zone",
+      address: "NH-66 Kalambalam Bus Stand, Thiruvananthapuram",
+      lat: 8.76268,
+      lng: 76.79129,
+      radius: 250,
+      department: "Water Supply & Drainage",
+      installDate: monthsAgoDate(66),
+      maintainedDaysAgo: 260,
+      maintenanceType: "REPAIR",
+      maintenanceNotes: "Sluice valve packing replaced at bus stand branch",
+    },
+    {
+      assetCode: "DR-TVM-042",
+      name: "Kazhakkoottam Bypass Side Drain",
+      assetType: "DRAINAGE",
+      city: "Thiruvananthapuram",
+      ward: "Ward 1 - Kazhakkoottam",
+      zone: "North Zone",
+      address: "Technopark Bypass Rd, Kazhakkoottam",
+      lat: 8.5686,
+      lng: 76.8731,
+      radius: 220,
+      department: "Water Supply & Drainage",
+      installDate: monthsAgoDate(32),
+      maintainedDaysAgo: 20,
+      maintenanceType: "CLEANING",
+      maintenanceNotes: "Routine silt clearance and slab replacement",
+    },
+    {
+      assetCode: "DR-BLR-802",
+      name: "100 Ft Road Indiranagar Storm Drain",
+      assetType: "DRAINAGE",
+      city: "Bengaluru",
+      ward: "Ward 80 - Indiranagar",
+      zone: "East Zone",
+      address: "100 Ft Road, Indiranagar, Bengaluru",
+      lat: 12.9784,
+      lng: 77.6408,
+      radius: 250,
+      department: "Water Supply & Drainage",
+      installDate: monthsAgoDate(44),
+      maintainedDaysAgo: 195,
+      maintenanceType: "CLEANING",
+      maintenanceNotes: "Stormwater inlet grating cleared",
+    },
+    {
+      assetCode: "SN-BLR-805",
+      name: "CMH Road Metro Collection Hub",
+      assetType: "WASTE_POINT",
+      city: "Bengaluru",
+      ward: "Ward 80 - Indiranagar",
+      zone: "East Zone",
+      address: "CMH Road Metro Pillar, Indiranagar, Bengaluru",
+      lat: 12.97865,
+      lng: 77.64105,
+      radius: 220,
+      department: "Sanitation & Solid Waste",
+      installDate: monthsAgoDate(28),
+      maintainedDaysAgo: 110,
+      maintenanceType: "PREVENTIVE_MAINTENANCE",
+      maintenanceNotes: "Secondary bin replacement and sanitization",
+    },
+    {
+      assetCode: "SL-BLR-809",
+      name: "12th Main Indiranagar Lighting Grid",
+      assetType: "STREETLIGHT_CLUSTER",
+      city: "Bengaluru",
+      ward: "Ward 80 - Indiranagar",
+      zone: "East Zone",
+      address: "12th Main Road, Indiranagar, Bengaluru",
+      lat: 12.97818,
+      lng: 77.64062,
+      radius: 250,
+      department: "Electricity & Street Lighting",
+      installDate: monthsAgoDate(38),
+      maintainedDaysAgo: 165,
+      maintenanceType: "INSPECTION",
+      maintenanceNotes: "Feeder line voltage balance audit",
+    },
+  ];
+
+  let assetsSeeded = 0;
+  for (const asset of sampleAssets) {
+    const maintainedAt = daysAgo(asset.maintainedDaysAgo);
+    const existsRes = await dbClient.query(
+      "SELECT id FROM infrastructure_assets WHERE asset_code = $1 LIMIT 1",
+      [asset.assetCode],
+    );
+    if (existsRes.rowCount > 0) {
+      continue;
+    }
+
+    const insertAsset = await dbClient.query(
+      `INSERT INTO infrastructure_assets (
+         asset_code, name, asset_type, city, ward, zone, address,
+         latitude, longitude, catchment_radius_meters, department,
+         install_date, last_maintained_at, metadata
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)
+       RETURNING id`,
+      [
+        asset.assetCode,
+        asset.name,
+        asset.assetType,
+        asset.city,
+        asset.ward,
+        asset.zone,
+        asset.address,
+        asset.lat,
+        asset.lng,
+        asset.radius,
+        asset.department,
+        asset.installDate,
+        maintainedAt,
+        JSON.stringify({ seeded: true }),
+      ],
+    );
+
+    const newAssetId = insertAsset.rows[0].id;
+    await dbClient.query(
+      `INSERT INTO maintenance_events (
+         asset_id, event_type, outcome, performed_by, actor_id, notes, performed_at
+       )
+       VALUES ($1, $2, 'COMPLETED', 'Municipal Engineering Crew', $3, $4, $5)`,
+      [newAssetId, asset.maintenanceType, officerId, asset.maintenanceNotes, maintainedAt],
+    );
+    assetsSeeded += 1;
+  }
+
+  if (assetsSeeded > 0) {
+    console.log(`Seeded ${assetsSeeded} Layer 3 infrastructure asset(s).`);
+  }
+
+  // Idempotently seed historical baseline score trajectories so sparklines and
+  // Improving/Deteriorating trends are accurate across repeated sweeps.
+  const baselineTrajectories = {
+    "RD-HYD-1024": [
+      { daysAgo: 35, score: 72, grade: "FAIR", complaints: 1, open: 1 },
+      { daysAgo: 14, score: 54, grade: "POOR", complaints: 3, open: 3 },
+    ],
+    "RD-TVM-066": [
+      { daysAgo: 35, score: 68, grade: "FAIR", complaints: 1, open: 1 },
+      { daysAgo: 14, score: 49, grade: "POOR", complaints: 2, open: 2 },
+    ],
+    "WP-HYD-204": [
+      { daysAgo: 35, score: 74, grade: "FAIR", complaints: 1, open: 1 },
+      { daysAgo: 14, score: 58, grade: "POOR", complaints: 2, open: 2 },
+    ],
+    "WP-TVM-108": [
+      { daysAgo: 35, score: 70, grade: "FAIR", complaints: 0, open: 0 },
+      { daysAgo: 14, score: 55, grade: "POOR", complaints: 1, open: 1 },
+    ],
+    "DR-BLR-802": [
+      { daysAgo: 35, score: 82, grade: "GOOD", complaints: 0, open: 0 },
+      { daysAgo: 14, score: 68, grade: "FAIR", complaints: 1, open: 1 },
+    ],
+    "WP-HYD-310": [
+      { daysAgo: 35, score: 79, grade: "FAIR", complaints: 1, open: 1 },
+      { daysAgo: 14, score: 66, grade: "FAIR", complaints: 2, open: 2 },
+    ],
+    "DR-HYD-112": [
+      { daysAgo: 35, score: 78, grade: "FAIR", complaints: 1, open: 1 },
+      { daysAgo: 24, score: 98, grade: "GOOD", complaints: 0, open: 0 },
+    ],
+    "DR-TVM-042": [
+      { daysAgo: 35, score: 76, grade: "FAIR", complaints: 1, open: 1 },
+      { daysAgo: 19, score: 98, grade: "GOOD", complaints: 0, open: 0 },
+    ],
+  };
+
+  let historySeeded = 0;
+  for (const [assetCode, points] of Object.entries(baselineTrajectories)) {
+    const aRes = await dbClient.query(
+      "SELECT id FROM infrastructure_assets WHERE asset_code = $1 LIMIT 1",
+      [assetCode],
+    );
+    if (aRes.rowCount === 0) continue;
+    const assetUuid = aRes.rows[0].id;
+    const hCountRes = await dbClient.query(
+      "SELECT COUNT(*)::int AS cnt FROM infrastructure_health_history WHERE asset_id = $1",
+      [assetUuid],
+    );
+    const oldestRes = await dbClient.query(
+      "SELECT MIN(recorded_at) AS min_at FROM infrastructure_health_history WHERE asset_id = $1",
+      [assetUuid],
+    );
+    const oldestAt = oldestRes.rows[0]?.min_at ? new Date(oldestRes.rows[0].min_at).getTime() : nowMs;
+    // Only backfill if there are no prior historical (>= 10 days old) baseline snapshots yet
+    if (hCountRes.rows[0].cnt < 2 || nowMs - oldestAt < 10 * 24 * 60 * 60 * 1000) {
+      for (const pt of points) {
+        const recAt = daysAgo(pt.daysAgo);
+        const dupRes = await dbClient.query(
+          `SELECT 1 FROM infrastructure_health_history
+           WHERE asset_id = $1 AND ABS(EXTRACT(EPOCH FROM (recorded_at - $2::timestamptz))) < 43200
+           LIMIT 1`,
+          [assetUuid, recAt],
+        );
+        if (dupRes.rowCount === 0) {
+          await dbClient.query(
+            `INSERT INTO infrastructure_health_history (
+               asset_id, health_score, health_grade, complaint_count, open_complaint_count, score_breakdown, recorded_at
+             )
+             VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz)`,
+            [
+              assetUuid,
+              pt.score,
+              pt.grade,
+              pt.complaints,
+              pt.open,
+              JSON.stringify({ seededBaseline: true, baseScore: 100, totalPenalty: 100 - pt.score }),
+              recAt,
+            ],
+          );
+          historySeeded += 1;
+        }
+      }
+    }
+  }
+  if (historySeeded > 0) {
+    console.log(`Seeded ${historySeeded} baseline infrastructure health history point(s).`);
+  }
+
+  const infraSummary = await recalculateInfrastructureHealth({
+    forceSnapshot: false,
+    skipGraphSync: true,
+  });
+  console.log(
+    `Layer 3 health scores computed: assets=${infraSummary.recomputedCount}`,
+  );
+
+  const kgSummary = await syncKnowledgeGraph();
+  console.log(
+    `Layer 4 knowledge graph synced: nodes=${kgSummary.nodesSynced}, edges=${kgSummary.edgesSynced}, inferred=${kgSummary.inferredEdgesCount}`,
   );
 
   await dbClient.end();

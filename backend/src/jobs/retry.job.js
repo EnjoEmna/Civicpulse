@@ -3,6 +3,8 @@ const backgroundJobRepository = require("../repositories/background-job.reposito
 const complaintEnrichmentJob = require("./complaint-enrichment.job");
 const embeddingJob = require("./embedding.job");
 const hotspotService = require("../modules/intelligence/spatial/hotspot.service");
+const infrastructureService = require("../modules/intelligence/infrastructure/infrastructure.service");
+const graphBuilder = require("../modules/intelligence/graph/graph-builder.service");
 
 let runnerTimer = null;
 let isProcessingBatch = false;
@@ -116,7 +118,14 @@ function startJobRunner({ intervalMs = 60000, runBackfillOnStart = true } = {}) 
               cityWide: true,
               clusterDistanceMeters: 150,
               minClusterSize: 2,
+              skipGraphSync: true,
             })
+            .catch(() => {});
+          await infrastructureService
+            .recalculateInfrastructureHealth({ skipGraphSync: true })
+            .catch(() => {});
+          await graphBuilder
+            .syncKnowledgeGraph()
             .catch(() => {});
         })
         .catch((err) => {

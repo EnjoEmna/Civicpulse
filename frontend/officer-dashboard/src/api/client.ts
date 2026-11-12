@@ -26,6 +26,25 @@ import type {
   SpatialClusteringResult,
   WardAnalyticsResponse,
 } from "../types/spatial";
+import type {
+  AssetDetailsResponse,
+  CreateAssetPayload,
+  InfrastructureAsset,
+  InfrastructureMetricsResponse,
+  InfrastructureOverviewResponse,
+  LogMaintenancePayload,
+  MaintenanceEvent,
+  WardHealthResponse,
+} from "../types/infrastructure";
+import type {
+  AssetInvestigationResponse,
+  ComplaintInvestigationResponse,
+  GraphMetricsResponse,
+  GraphOverviewResponse,
+  NodeNeighborhoodResponse,
+  RebuildGraphResponse,
+  ShortestPathResponse,
+} from "../types/graph";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000/api/v1";
 const API_ORIGIN = BASE_URL.replace(/\/api\/v1\/?$/, "");
@@ -126,6 +145,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const body = await res.json().catch(() => ({}));
 
   if (!res.ok) {
+    if (res.status === 401 && !path.startsWith("/auth/")) {
+      localStorage.removeItem("cp_officer_token");
+      if (window.location.pathname !== "/officer/login") {
+        window.location.replace("/officer/login");
+      }
+    }
     throw new Error(
       body.error?.message ?? body.message ?? `Request failed: ${res.status}`,
     );
@@ -574,5 +599,221 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     });
+  },
+
+  getInfrastructureHealth: async (params?: {
+    city?: string;
+    ward?: string;
+    assetType?: string;
+    grade?: string;
+    sortBy?: string;
+    limit?: number;
+  }): Promise<InfrastructureOverviewResponse> => {
+    const searchParams = new URLSearchParams();
+    if (params?.city && params.city !== "all") searchParams.set("city", params.city);
+    if (params?.ward && params.ward !== "all") searchParams.set("ward", params.ward);
+    if (params?.assetType && params.assetType !== "all") {
+      searchParams.set("assetType", params.assetType);
+    }
+    if (params?.grade && params.grade !== "all") searchParams.set("grade", params.grade);
+    if (params?.sortBy) searchParams.set("sortBy", params.sortBy);
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+
+    const qs = searchParams.toString();
+    const response = await request<{
+      success: boolean;
+      data: InfrastructureOverviewResponse;
+    }>(`/intelligence/infrastructure/health${qs ? `?${qs}` : ""}`);
+    return response.data;
+  },
+
+  getWardHealth: async (city?: string): Promise<WardHealthResponse> => {
+    const qs = city && city !== "all" ? `?city=${encodeURIComponent(city)}` : "";
+    const response = await request<{ success: boolean; data: WardHealthResponse }>(
+      `/intelligence/infrastructure/wards${qs}`,
+    );
+    return response.data;
+  },
+
+  getInfrastructureAsset: async (id: string): Promise<AssetDetailsResponse> => {
+    const response = await request<{ success: boolean; data: AssetDetailsResponse }>(
+      `/intelligence/infrastructure/assets/${encodeURIComponent(id)}`,
+    );
+    return response.data;
+  },
+
+  createInfrastructureAsset: async (
+    payload: CreateAssetPayload,
+  ): Promise<AssetDetailsResponse> => {
+    const response = await request<{ success: boolean; data: AssetDetailsResponse }>(
+      "/intelligence/infrastructure/assets",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    );
+    return response.data;
+  },
+
+  logAssetMaintenance: async (
+    assetId: string,
+    payload: LogMaintenancePayload,
+  ): Promise<AssetDetailsResponse & { event: MaintenanceEvent }> => {
+    const response = await request<{
+      success: boolean;
+      data: AssetDetailsResponse & { event: MaintenanceEvent };
+    }>(`/intelligence/infrastructure/assets/${encodeURIComponent(assetId)}/maintenance`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    return response.data;
+  },
+
+  recomputeInfrastructureHealth: async (city?: string): Promise<{
+    recomputedCount: number;
+    city: string | null;
+    assets: InfrastructureAsset[];
+  }> => {
+    const response = await request<{
+      success: boolean;
+      data: {
+        recomputedCount: number;
+        city: string | null;
+        assets: InfrastructureAsset[];
+      };
+    }>("/intelligence/infrastructure/recompute", {
+      method: "POST",
+      body: JSON.stringify(city && city !== "all" ? { city } : {}),
+    });
+    return response.data;
+  },
+
+  getComplaintAssets: async (complaintId: string): Promise<{
+    complaintId: string;
+    assets: InfrastructureAsset[];
+  }> => {
+    const response = await request<{
+      success: boolean;
+      data: { complaintId: string; assets: InfrastructureAsset[] };
+    }>(`/intelligence/infrastructure/complaints/${encodeURIComponent(complaintId)}`);
+    return response.data;
+  },
+
+  getInfrastructureMetrics: async (
+    city?: string,
+  ): Promise<InfrastructureMetricsResponse> => {
+    const qs = city && city !== "all" ? `?city=${encodeURIComponent(city)}` : "";
+    const response = await request<{
+      success: boolean;
+      data: InfrastructureMetricsResponse;
+    }>(`/intelligence/infrastructure/metrics${qs}`);
+    return response.data;
+  },
+
+  getGraphOverview: async (params?: {
+    city?: string;
+    entityType?: string;
+    q?: string;
+    limit?: number;
+  }): Promise<GraphOverviewResponse> => {
+    const searchParams = new URLSearchParams();
+    if (params?.city && params.city !== "all") searchParams.set("city", params.city);
+    if (params?.entityType && params.entityType !== "all") {
+      searchParams.set("entityType", params.entityType);
+    }
+    if (params?.q?.trim()) searchParams.set("q", params.q.trim());
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    const qs = searchParams.toString();
+    const response = await request<{ success: boolean; data: GraphOverviewResponse }>(
+      `/intelligence/graph/overview${qs ? `?${qs}` : ""}`,
+    );
+    return response.data;
+  },
+
+  getGraphNodeNeighborhood: async (
+    nodeKey: string,
+    params?: { depth?: number; maxNodes?: number; includeInferred?: boolean },
+  ): Promise<NodeNeighborhoodResponse> => {
+    const searchParams = new URLSearchParams();
+    if (params?.depth) searchParams.set("depth", String(params.depth));
+    if (params?.maxNodes) searchParams.set("maxNodes", String(params.maxNodes));
+    if (params?.includeInferred !== undefined) {
+      searchParams.set("includeInferred", String(params.includeInferred));
+    }
+    const qs = searchParams.toString();
+    const response = await request<{
+      success: boolean;
+      data: NodeNeighborhoodResponse;
+    }>(`/intelligence/graph/nodes/${encodeURIComponent(nodeKey)}${qs ? `?${qs}` : ""}`);
+    return response.data;
+  },
+
+  investigateGraphAsset: async (
+    assetIdOrCode: string,
+    params?: { includeInferred?: boolean },
+  ): Promise<AssetInvestigationResponse> => {
+    const qs =
+      params?.includeInferred !== undefined
+        ? `?includeInferred=${String(params.includeInferred)}`
+        : "";
+    const response = await request<{
+      success: boolean;
+      data: AssetInvestigationResponse;
+    }>(`/intelligence/graph/investigate/asset/${encodeURIComponent(assetIdOrCode)}${qs}`);
+    return response.data;
+  },
+
+  investigateGraphComplaint: async (
+    complaintId: string,
+    params?: { includeInferred?: boolean },
+  ): Promise<ComplaintInvestigationResponse> => {
+    const qs =
+      params?.includeInferred !== undefined
+        ? `?includeInferred=${String(params.includeInferred)}`
+        : "";
+    const response = await request<{
+      success: boolean;
+      data: ComplaintInvestigationResponse;
+    }>(`/intelligence/graph/investigate/complaint/${encodeURIComponent(complaintId)}${qs}`);
+    return response.data;
+  },
+
+  findGraphShortestPath: async (params: {
+    from: string;
+    to: string;
+    maxDepth?: number;
+    includeInferred?: boolean;
+  }): Promise<ShortestPathResponse> => {
+    const searchParams = new URLSearchParams({
+      from: params.from,
+      to: params.to,
+    });
+    if (params.maxDepth) searchParams.set("maxDepth", String(params.maxDepth));
+    if (params.includeInferred !== undefined) {
+      searchParams.set("includeInferred", String(params.includeInferred));
+    }
+    const response = await request<{ success: boolean; data: ShortestPathResponse }>(
+      `/intelligence/graph/path?${searchParams.toString()}`,
+    );
+    return response.data;
+  },
+
+  getGraphMetrics: async (city?: string): Promise<GraphMetricsResponse> => {
+    const qs = city && city !== "all" ? `?city=${encodeURIComponent(city)}` : "";
+    const response = await request<{ success: boolean; data: GraphMetricsResponse }>(
+      `/intelligence/graph/metrics${qs}`,
+    );
+    return response.data;
+  },
+
+  rebuildKnowledgeGraph: async (city?: string): Promise<RebuildGraphResponse> => {
+    const response = await request<{ success: boolean; data: RebuildGraphResponse }>(
+      "/intelligence/graph/rebuild",
+      {
+        method: "POST",
+        body: JSON.stringify(city && city !== "all" ? { city } : {}),
+      },
+    );
+    return response.data;
   },
 };

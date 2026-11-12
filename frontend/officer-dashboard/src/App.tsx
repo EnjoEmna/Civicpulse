@@ -6,17 +6,39 @@ import ComplaintQueue from "./pages/ComplaintQueue";
 import ComplaintReview from "./pages/ComplaintReview";
 import IssueMap from "./pages/IssueMap";
 import SpatialIntelligence from "./pages/SpatialIntelligence";
+import InfrastructureHealth from "./pages/InfrastructureHealth";
+import KnowledgeGraph from "./pages/KnowledgeGraph";
 import OfficerProfile from "./pages/OfficerProfile";
+
+function isTokenValid(token: string | null): boolean {
+  if (!token) return false;
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return false;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+    if (typeof payload.exp === "number" && payload.exp * 1000 <= Date.now()) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function isAuthenticated() {
   const params = new URLSearchParams(window.location.search);
-  const token = params.get("token");
-  if (token) {
-    localStorage.setItem("cp_officer_token", token);
+  const urlToken = params.get("token");
+  if (urlToken) {
+    localStorage.setItem("cp_officer_token", urlToken);
     window.history.replaceState({}, document.title, window.location.pathname);
-    return true;
+    return isTokenValid(urlToken);
   }
-  return Boolean(localStorage.getItem("cp_officer_token"));
+  const stored = localStorage.getItem("cp_officer_token");
+  if (!isTokenValid(stored)) {
+    localStorage.removeItem("cp_officer_token");
+    return false;
+  }
+  return true;
 }
 
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -48,6 +70,14 @@ export default function App() {
           <Route
             path="/officer/spatial-intelligence"
             element={<SpatialIntelligence />}
+          />
+          <Route
+            path="/officer/infrastructure-health"
+            element={<InfrastructureHealth />}
+          />
+          <Route
+            path="/officer/knowledge-graph"
+            element={<KnowledgeGraph />}
           />
         </Route>
 

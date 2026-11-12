@@ -5,6 +5,8 @@ import {
   MapTrifold,
   SignOut,
   Brain,
+  Heartbeat,
+  ShareNetwork,
   UserCircle,
 } from "@phosphor-icons/react";
 
@@ -29,6 +31,18 @@ const NAV_ITEMS = [
     icon: Brain,
     end: false,
   },
+  {
+    to: "/officer/infrastructure-health",
+    label: "Infrastructure Health",
+    icon: Heartbeat,
+    end: false,
+  },
+  {
+    to: "/officer/knowledge-graph",
+    label: "Knowledge Graph",
+    icon: ShareNetwork,
+    end: false,
+  },
 ];
 
 export function Sidebar() {
@@ -43,7 +57,7 @@ export function Sidebar() {
       aria-label="Officer Sidebar Navigation"
     >
       {/* Brand Header */}
-      <div className="flex shrink-0 items-center gap-3 px-6 py-6 border-b border-white/12">
+      <div className="flex shrink-0 items-center gap-3 px-5 py-4 border-b border-white/12">
         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-sm font-bold text-white shadow-[0_4px_12px_rgba(37,99,235,0.4),inset_0_1px_1px_rgba(255,255,255,0.5)]">
           CP
         </div>
@@ -57,7 +71,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      <div className="shrink-0 px-3 pt-5 pb-2">
+      <div className="shrink-0 px-3 pt-3 pb-1.5">
         <span className="px-3 text-[10px] font-bold uppercase tracking-wider text-white/45">
           Navigation
         </span>
@@ -65,7 +79,7 @@ export function Sidebar() {
 
       {/* Nav List with Independent Scroll if Viewport is Compact */}
       <nav
-        className="flex flex-1 flex-col gap-1.5 px-3 overflow-y-auto"
+        className="flex flex-1 min-h-0 flex-col gap-1 px-3 overflow-y-auto"
         aria-label="Primary"
       >
         {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
@@ -74,21 +88,21 @@ export function Sidebar() {
             to={to}
             end={end}
             className={({ isActive }) =>
-              `flex items-center gap-3 rounded-2xl px-3.5 py-2.5 text-sm transition-all duration-200 ${
+              `flex items-center gap-3 rounded-2xl px-3.5 py-2 text-sm transition-all duration-200 ${
                 isActive
                   ? "bg-white/20 text-white shadow-[0_3px_12px_rgba(0,0,0,0.2),inset_0_1px_1px_rgba(255,255,255,0.4)] border border-white/25 font-bold backdrop-blur-md"
                   : "text-white/75 font-medium hover:bg-white/10 hover:text-white"
               }`
             }
           >
-            <Icon size={19} weight="duotone" />
+            <Icon size={18} weight="duotone" />
             {label}
           </NavLink>
         ))}
       </nav>
 
       {/* Live System Status Chip (No hardcoded ward) */}
-      <div className="mx-3 my-3 shrink-0 rounded-2xl border border-white/12 bg-white/8 p-3.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-md">
+      <div className="mx-3 my-2 shrink-0 rounded-2xl border border-white/12 bg-white/8 p-3 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)] backdrop-blur-md">
         <div className="flex items-center gap-2">
           <span className="relative flex h-2 w-2">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />

@@ -20,6 +20,7 @@ import {
   Crosshair,
   CopySimple,
   CaretDown,
+  Heartbeat,
 } from "@phosphor-icons/react";
 import { StatusBadge, PriorityTag } from "../components/StatusBadge";
 import { api } from "../api/client";
@@ -30,6 +31,7 @@ import type {
   SimilarComplaintItem,
   SimilarComplaintsResponse,
 } from "../types/complaint";
+import type { InfrastructureAsset } from "../types/infrastructure";
 
 const STATUS_LABELS: Record<string, string> = {
   SUBMITTED: "Submitted",
@@ -97,12 +99,14 @@ export default function ComplaintReview() {
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
 
   const [relatedIntel, setRelatedIntel] = useState<SimilarComplaintsResponse | null>(null);
+  const [linkedAssets, setLinkedAssets] = useState<InfrastructureAsset[]>([]);
   const [flaggingDuplicateId, setFlaggingDuplicateId] = useState<string | null>(null);
   const [duplicateActionNotice, setDuplicateActionNotice] = useState<string | null>(null);
 
   const [aiSummaryOpen, setAiSummaryOpen] = useState(false);
   const [hotspotsOpen, setHotspotsOpen] = useState(false);
   const [duplicatesOpen, setDuplicatesOpen] = useState(false);
+  const [assetsOpen, setAssetsOpen] = useState(false);
 
   function syncFormFromComplaint(data: Complaint) {
     const allowed = ALLOWED_TRANSITIONS[String(data.status).toUpperCase()] ?? [];
@@ -116,14 +120,16 @@ export default function ComplaintReview() {
     setError(null);
 
     try {
-      const [data, officerList, related] = await Promise.all([
+      const [data, officerList, related, assetRes] = await Promise.all([
         api.getComplaint(id),
         api.getOfficers().catch(() => []),
         api.getSimilarComplaintsAndHotspots(id, 6).catch(() => null),
+        api.getComplaintAssets(id).catch(() => ({ complaintId: id, assets: [] })),
       ]);
       setComplaint(data);
       setOfficers(officerList);
       setRelatedIntel(related);
+      setLinkedAssets(assetRes.assets || []);
       syncFormFromComplaint(data);
     } catch (err) {
       setError(
@@ -140,6 +146,7 @@ export default function ComplaintReview() {
     setAiSummaryOpen(false);
     setHotspotsOpen(false);
     setDuplicatesOpen(false);
+    setAssetsOpen(false);
     void loadComplaint();
   }, [id]);
 
@@ -1170,6 +1177,154 @@ export default function ComplaintReview() {
             </div>
           )}
 
+          {/* Impacted Infrastructure Assets Pull-Down */}
+          {linkedAssets.length > 0 && (() => {
+            const topAsset = linkedAssets[0];
+            const topBadgeCls =
+              topAsset.healthGrade === "CRITICAL"
+                ? "border-rose-300 bg-rose-500/15 text-rose-800"
+                : topAsset.healthGrade === "POOR"
+                  ? "border-amber-300 bg-amber-500/15 text-amber-900"
+                  : topAsset.healthGrade === "FAIR"
+                    ? "border-sky-300 bg-sky-500/15 text-sky-900"
+                    : "border-emerald-300 bg-emerald-500/15 text-emerald-800";
+
+            return (
+              <div className="glass-panel overflow-hidden transition-all">
+                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+                  <button
+                    type="button"
+                    aria-expanded={assetsOpen}
+                    onClick={() => setAssetsOpen((prev) => !prev)}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left cursor-pointer"
+                  >
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-700">
+                      <Heartbeat size={17} weight="duotone" />
+                    </span>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="text-xs font-bold uppercase tracking-wider text-ink">
+                          Affected Infrastructure Assets ({linkedAssets.length})
+                        </h2>
+                        <span
+                          className={`rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold ${topBadgeCls}`}
+                        >
+                          {topAsset.assetCode} · {topAsset.healthScore}/100 ({topAsset.healthGrade})
+                        </span>
+                      </div>
+                      <p className="mt-0.5 truncate text-xs text-ink-soft">
+                        {topAsset.name}
+                        {!assetsOpen ? " — Click to inspect linked asset condition" : ""}
+                      </p>
+                    </div>
+                  </button>
+
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Link
+                      to={`/officer/knowledge-graph?complaintId=${encodeURIComponent(complaint.id)}`}
+                      className="rounded-full border border-indigo-200 bg-indigo-50/85 px-3 py-1 text-xs font-bold text-indigo-800 transition hover:bg-indigo-100"
+                    >
+                      Knowledge Graph →
+                    </Link>
+                    <Link
+                      to={`/officer/infrastructure-health?assetId=${encodeURIComponent(topAsset.id)}`}
+                      className="rounded-full border border-emerald-200 bg-emerald-50/85 px-3 py-1 text-xs font-bold text-emerald-800 transition hover:bg-emerald-100"
+                    >
+                      Open Health Score →
+                    </Link>
+                    <button
+                      type="button"
+                      aria-label={
+                        assetsOpen
+                          ? "Collapse affected assets"
+                          : "Expand affected assets"
+                      }
+                      aria-expanded={assetsOpen}
+                      onClick={() => setAssetsOpen((prev) => !prev)}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/70 bg-white/75 text-ink-soft transition hover:bg-white hover:text-ink cursor-pointer"
+                    >
+                      <CaretDown
+                        size={14}
+                        weight="bold"
+                        className={`transition-transform duration-200 ${
+                          assetsOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                <AnimatePresence initial={false}>
+                  {assetsOpen && (
+                    <motion.div
+                      key="linked-assets-drawer"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.22, ease: "easeOut" }}
+                      className="overflow-hidden border-t border-white/50"
+                    >
+                      <div className="grid gap-3 p-5 pt-4 sm:grid-cols-2">
+                        {linkedAssets.map((asset) => {
+                          const gradeCls =
+                            asset.healthGrade === "CRITICAL"
+                              ? "border-rose-300 bg-rose-500/15 text-rose-800"
+                              : asset.healthGrade === "POOR"
+                                ? "border-amber-300 bg-amber-500/15 text-amber-900"
+                                : asset.healthGrade === "FAIR"
+                                  ? "border-sky-300 bg-sky-500/15 text-sky-900"
+                                  : "border-emerald-300 bg-emerald-500/15 text-emerald-800";
+
+                          return (
+                            <Link
+                              key={asset.id}
+                              to={`/officer/infrastructure-health?assetId=${encodeURIComponent(asset.id)}`}
+                              className="flex flex-col justify-between gap-2 rounded-2xl border border-white/75 bg-white/60 p-3.5 transition hover:border-blue-300 hover:bg-white/90"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="font-mono text-xs font-extrabold text-primary">
+                                      {asset.assetCode}
+                                    </span>
+                                    <span
+                                      className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${gradeCls}`}
+                                    >
+                                      {asset.healthScore}/100 {asset.healthGrade}
+                                    </span>
+                                    {asset.linkType && (
+                                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                                        {asset.linkType === "CROSS_IMPACT"
+                                          ? "Cross-Impact"
+                                          : "Direct"}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <h3 className="mt-1 text-sm font-bold text-ink">
+                                    {asset.name}
+                                  </h3>
+                                  {asset.linkReason && (
+                                    <p className="mt-0.5 text-[11px] text-ink-soft">
+                                      {asset.linkReason}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              <span className="text-[11px] font-bold text-primary">
+                                Inspect asset breakdown →
+                              </span>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })()}
+
           {/* Activity Timeline */}
           <div className="glass-panel p-6">
             <div className="mb-5 flex items-center justify-between gap-2">
@@ -1406,6 +1561,13 @@ export default function ComplaintReview() {
                 <span className="font-semibold text-ink-soft">Last Updated</span>
                 <span className="text-ink">{new Date(complaint.updatedAt).toLocaleDateString()}</span>
               </div>
+              <Link
+                to={`/officer/knowledge-graph?complaintId=${encodeURIComponent(complaint.id)}`}
+                className="flex items-center justify-between rounded-xl border border-indigo-200/80 bg-indigo-50/75 p-2.5 font-bold text-indigo-800 transition hover:bg-indigo-100"
+              >
+                <span>Connected Context Graph</span>
+                <span>Investigate →</span>
+              </Link>
             </div>
           </div>
         </div>

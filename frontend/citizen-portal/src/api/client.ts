@@ -128,6 +128,13 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && !path.startsWith("/auth/")) {
+      localStorage.removeItem("cp_citizen_token");
+      localStorage.removeItem("cp_citizen_profile");
+      if (window.location.pathname !== "/login") {
+        window.location.replace("/login");
+      }
+    }
 
     throw new Error(
       body?.error?.message ?? body?.message ?? `Request failed: ${res.status}`,

@@ -10,15 +10,36 @@ import ComplaintDetails from "./pages/ComplaintDetails";
 import CivicMap from "./pages/CivicMap";
 import Profile from "./pages/Profile";
 
+function isTokenValid(token: string | null): boolean {
+  if (!token) return false;
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return false;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+    if (typeof payload.exp === "number" && payload.exp * 1000 <= Date.now()) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isAuthenticated() {
   const params = new URLSearchParams(window.location.search);
-  const token = params.get("token");
-  if (token) {
-    localStorage.setItem("cp_citizen_token", token);
+  const urlToken = params.get("token");
+  if (urlToken) {
+    localStorage.setItem("cp_citizen_token", urlToken);
     window.history.replaceState({}, document.title, window.location.pathname);
-    return true;
+    return isTokenValid(urlToken);
   }
-  return Boolean(localStorage.getItem("cp_citizen_token"));
+  const stored = localStorage.getItem("cp_citizen_token");
+  if (!isTokenValid(stored)) {
+    localStorage.removeItem("cp_citizen_token");
+    localStorage.removeItem("cp_citizen_profile");
+    return false;
+  }
+  return true;
 }
 
 function RequireAuth({ children }: { children: JSX.Element }) {

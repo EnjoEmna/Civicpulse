@@ -24,6 +24,8 @@ const {
 const {
   enqueueComplaintEnrichment,
 } = require("../../jobs/complaint-enrichment.job");
+const infrastructureService = require("../intelligence/infrastructure/infrastructure.service");
+const graphBuilder = require("../intelligence/graph/graph-builder.service");
 
 const pool = require("../../config/database");
 
@@ -144,6 +146,17 @@ async function createComplaint({
         err.message,
       );
     });
+    infrastructureService
+      .recalculateInfrastructureHealth({
+        city: created.city || city || null,
+        skipGraphSync: true,
+      })
+      .catch(() => {})
+      .finally(() => {
+        graphBuilder
+          .syncKnowledgeGraph({ city: created.city || city || null })
+          .catch(() => {});
+      });
   }
 
   return attachFullDetails(created);
@@ -328,6 +341,20 @@ async function updateComplaintStatus(
     client.release();
   }
 
+  if (process.env.NODE_ENV !== "test") {
+    infrastructureService
+      .recalculateInfrastructureHealth({
+        city: updated.city || complaint.city || null,
+        skipGraphSync: true,
+      })
+      .catch(() => {})
+      .finally(() => {
+        graphBuilder
+          .syncKnowledgeGraph({ city: updated.city || complaint.city || null })
+          .catch(() => {});
+      });
+  }
+
   return attachFullDetails(updated);
 }
 
@@ -380,6 +407,20 @@ async function assignComplaint(
     throw err;
   } finally {
     client.release();
+  }
+
+  if (process.env.NODE_ENV !== "test") {
+    infrastructureService
+      .recalculateInfrastructureHealth({
+        city: updated.city || complaint.city || null,
+        skipGraphSync: true,
+      })
+      .catch(() => {})
+      .finally(() => {
+        graphBuilder
+          .syncKnowledgeGraph({ city: updated.city || complaint.city || null })
+          .catch(() => {});
+      });
   }
 
   return attachFullDetails(updated);
