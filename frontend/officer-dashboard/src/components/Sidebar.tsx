@@ -2,16 +2,22 @@ import { NavLink } from "react-router-dom";
 import {
   SquaresFour,
   ClipboardText,
-  MapTrifold,
   SignOut,
   Brain,
   Heartbeat,
   ShareNetwork,
   UserCircle,
+  Robot,
 } from "@phosphor-icons/react";
 
 const NAV_ITEMS = [
   { to: "/officer", label: "Dashboard", icon: SquaresFour, end: true },
+  {
+    to: "/officer/copilot",
+    label: "Officer Copilot",
+    icon: Robot,
+    end: false,
+  },
   {
     to: "/officer/complaints",
     label: "Complaint Queue",
@@ -24,7 +30,6 @@ const NAV_ITEMS = [
     icon: UserCircle,
     end: false,
   },
-  { to: "/officer/map", label: "Issue Map", icon: MapTrifold, end: false },
   {
     to: "/officer/spatial-intelligence",
     label: "Spatial Intelligence",

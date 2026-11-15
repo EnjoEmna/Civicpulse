@@ -10,6 +10,7 @@ const understandRoutes = require("../modules/intelligence/understand/understand.
 const infrastructureRoutes = require("../modules/intelligence/infrastructure/infrastructure.routes");
 const graphRoutes = require("../modules/intelligence/graph/graph.routes");
 const agentRoutes = require("../modules/intelligence/agents/agent.routes");
+const copilotRoutes = require("../modules/copilot/copilot.routes");
 const spatialRoutes = require("../modules/intelligence/spatial/spatial.routes");
 
 router.use("/auth", authRoutes);
@@ -20,6 +21,7 @@ router.use("/intelligence", understandRoutes);
 router.use("/intelligence/infrastructure", infrastructureRoutes);
 router.use("/intelligence/graph", graphRoutes);
 router.use("/intelligence/agents", agentRoutes);
+router.use("/copilot", copilotRoutes);
 router.use("/spatial", spatialRoutes);
 
 module.exports = router;

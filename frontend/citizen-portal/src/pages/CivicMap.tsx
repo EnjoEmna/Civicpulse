@@ -11,7 +11,6 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
   MapPin,
-  Funnel,
   CaretRight,
   Crosshair,
   ArrowsClockwise,
@@ -19,9 +18,12 @@ import {
   WarningCircle,
   X,
   MagnifyingGlass,
-  GlobeHemisphereEast,
 } from "@phosphor-icons/react";
 import { StatusBadge } from "../components/StatusBadge";
+import {
+  ExpandableFilterBar,
+  type ActiveFilterChip,
+} from "../components/ExpandableFilterBar";
 import { api } from "../api/client";
 import type {
   ActiveCitiesResponse,
@@ -165,6 +167,8 @@ export default function CivicMap() {
   const [center, setCenter] = useState<[number, number]>(DEFAULT_CENTER);
   const [radiusMeters, setRadiusMeters] = useState<number>(25000);
   const [categoryFilter, setCategoryFilter] = useState<ComplaintCategory | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<ComplaintStatus | "all">("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [cityFilter, setCityFilter] = useState<string>("all");
   const [citiesData, setCitiesData] = useState<ActiveCitiesResponse | null>(null);
 
@@ -311,14 +315,70 @@ export default function CivicMap() {
     }
   }
 
-  const selected = useMemo(
-    () => pins.find((pin) => pin.id === selectedId) ?? null,
-    [pins, selectedId],
+  const visiblePins = useMemo(
+    () =>
+      statusFilter === "all"
+        ? pins
+        : pins.filter((pin) => mapStatus(pin.status) === statusFilter),
+    [pins, statusFilter],
   );
+
+  const selected = useMemo(
+    () => visiblePins.find((pin) => pin.id === selectedId) ?? null,
+    [visiblePins, selectedId],
+  );
+
+  const filterChips = useMemo<ActiveFilterChip[]>(() => {
+    const chips: ActiveFilterChip[] = [];
+    if (cityFilter !== "all") {
+      chips.push({
+        key: "city",
+        label: `City: ${cityFilter}`,
+        onRemove: () => handleSelectCity("all"),
+      });
+    }
+    if (radiusMeters !== 25000) {
+      const opt = RADIUS_OPTIONS.find((r) => r.value === radiusMeters);
+      chips.push({
+        key: "radius",
+        label: opt ? opt.label : `${(radiusMeters / 1000).toFixed(0)} km`,
+        onRemove: () => setRadiusMeters(25000),
+      });
+    }
+    if (categoryFilter !== "all") {
+      chips.push({
+        key: "category",
+        label: `Category: ${CATEGORY_LABELS[categoryFilter] ?? categoryFilter}`,
+        onRemove: () => setCategoryFilter("all"),
+      });
+    }
+    if (statusFilter !== "all") {
+      chips.push({
+        key: "status",
+        label: `Status: ${statusFilter.replace("_", " ")}`,
+        onRemove: () => setStatusFilter("all"),
+      });
+    }
+    return chips;
+  }, [cityFilter, radiusMeters, categoryFilter, statusFilter]);
+
+  const activeFilterCount =
+    (cityFilter !== "all" ? 1 : 0) +
+    (radiusMeters !== 25000 ? 1 : 0) +
+    (categoryFilter !== "all" ? 1 : 0) +
+    (statusFilter !== "all" ? 1 : 0);
+
+  function resetAllFilters() {
+    setCityFilter("all");
+    setRadiusMeters(25000);
+    setCategoryFilter("all");
+    setStatusFilter("all");
+    setSelectedId(null);
+  }
 
   return (
     <div className="space-y-5">
-      {/* Header & Controls */}
+      {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-ink font-display">
@@ -329,66 +389,101 @@ export default function CivicMap() {
           </p>
         </div>
 
-        <div className="relative flex flex-wrap items-center gap-2">
-          <form onSubmit={(e) => void handlePlaceSearch(e)} className="flex items-center gap-1.5">
-            <div className="relative">
-              <MagnifyingGlass
-                size={14}
-                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-soft"
-              />
-              <input
-                type="text"
-                value={placeQuery}
-                onChange={(e) => setPlaceQuery(e.target.value)}
-                placeholder="Search city or locality..."
-                aria-label="Search city or locality"
-                className="glass-pill w-44 rounded-ios-xl border border-white/70 bg-white/60 py-1.5 pl-8 pr-3 text-xs font-medium text-ink shadow-sm backdrop-blur-md focus:outline-none"
-              />
-            </div>
+        <button
+          type="button"
+          onClick={() => void loadNearby()}
+          disabled={loading}
+          className="glass-pill inline-flex items-center gap-1.5 self-start rounded-ios-xl border border-white/70 bg-white/60 px-3 py-1.5 text-xs font-semibold text-ink-soft hover:text-ink cursor-pointer disabled:opacity-50 sm:self-auto"
+          title="Refresh map"
+        >
+          <ArrowsClockwise size={14} className={loading ? "animate-spin text-primary" : ""} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Expandable Filter Panel */}
+      <ExpandableFilterBar
+        isOpen={filtersOpen}
+        onToggle={() => setFiltersOpen((prev) => !prev)}
+        activeCount={activeFilterCount}
+        chips={filterChips}
+        onResetAll={resetAllFilters}
+        panelTitle="Map Scope & Report Filters"
+        leading={
+          <div className="relative flex flex-wrap items-center gap-2">
+            <form onSubmit={(e) => void handlePlaceSearch(e)} className="flex items-center gap-1.5">
+              <div className="relative">
+                <MagnifyingGlass
+                  size={14}
+                  className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-soft"
+                />
+                <input
+                  type="text"
+                  value={placeQuery}
+                  onChange={(e) => setPlaceQuery(e.target.value)}
+                  placeholder="Search city or locality..."
+                  aria-label="Search city or locality"
+                  className="w-48 rounded-xl border border-white/80 bg-white/75 py-2 pl-8 pr-3 text-xs font-medium text-ink shadow-sm backdrop-blur-md focus:border-primary focus:outline-none"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={searchingPlace}
+                className="rounded-xl border border-indigo-200 bg-indigo-50/90 px-2.5 py-2 text-xs font-bold text-indigo-800 hover:bg-indigo-100 cursor-pointer"
+              >
+                {searchingPlace ? "..." : "Go"}
+              </button>
+            </form>
+
+            {placeResults.length > 0 && (
+              <div className="absolute left-0 top-10 z-[1100] w-72 overflow-hidden rounded-2xl border border-white/80 bg-white/95 shadow-xl backdrop-blur-xl">
+                <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto">
+                  {placeResults.map((place, idx) => (
+                    <li key={`${place.label}-${idx}`}>
+                      <button
+                        type="button"
+                        onClick={() => handlePickPlace(place)}
+                        className="flex w-full flex-col px-3 py-2 text-left text-xs hover:bg-blue-50/70 cursor-pointer"
+                      >
+                        <span className="font-semibold text-ink truncate">{place.label}</span>
+                        <span className="text-[10px] text-ink-soft">{place.city}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <button
-              type="submit"
-              disabled={searchingPlace}
-              className="glass-pill rounded-ios-xl border border-indigo-200 bg-indigo-50/90 px-2.5 py-1.5 text-xs font-bold text-indigo-800 hover:bg-indigo-100 cursor-pointer"
+              type="button"
+              onClick={handleUseMyLocation}
+              disabled={locating}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-white/80 bg-white/75 px-3 py-2 text-xs font-semibold text-primary shadow-sm backdrop-blur-md hover:bg-white cursor-pointer disabled:opacity-60"
             >
-              {searchingPlace ? "..." : "Go"}
+              <Crosshair size={14} weight="bold" />
+              {locating ? "Locating…" : "Use My Location"}
             </button>
-          </form>
-
-          {placeResults.length > 0 && (
-            <div className="absolute left-0 top-10 z-[1100] w-72 overflow-hidden rounded-2xl border border-white/80 bg-white/95 shadow-xl backdrop-blur-xl">
-              <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto">
-                {placeResults.map((place, idx) => (
-                  <li key={`${place.label}-${idx}`}>
-                    <button
-                      type="button"
-                      onClick={() => handlePickPlace(place)}
-                      className="flex w-full flex-col px-3 py-2 text-left text-xs hover:bg-blue-50/70 cursor-pointer"
-                    >
-                      <span className="font-semibold text-ink truncate">{place.label}</span>
-                      <span className="text-[10px] text-ink-soft">{place.city}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={handleUseMyLocation}
-            disabled={locating}
-            className="glass-pill inline-flex items-center gap-1.5 rounded-ios-xl border border-white/70 bg-white/60 px-3 py-1.5 text-xs font-semibold text-primary shadow-sm backdrop-blur-md hover:bg-white cursor-pointer disabled:opacity-60"
-          >
-            <Crosshair size={14} weight="bold" />
-            {locating ? "Locating…" : "Use My Location"}
-          </button>
-
-          <div className="glass-pill inline-flex items-center gap-1.5 rounded-ios-xl border border-white/70 bg-white/60 px-3 py-1.5 shadow-sm backdrop-blur-md">
-            <GlobeHemisphereEast size={14} className="text-primary font-bold" />
+          </div>
+        }
+        trailing={
+          <span className="text-[11px] font-semibold text-ink-soft">
+            {visiblePins.length} issue{visiblePins.length === 1 ? "" : "s"} shown
+          </span>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <label
+              htmlFor="civic-map-city"
+              className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-ink-soft"
+            >
+              City / Jurisdiction
+            </label>
             <select
+              id="civic-map-city"
               value={cityFilter}
               onChange={(e) => handleSelectCity(e.target.value)}
-              className="bg-transparent text-xs font-bold text-ink focus:outline-none cursor-pointer pr-1"
+              className="w-full rounded-xl border border-slate-200/90 bg-white/85 px-3 py-2 text-xs font-semibold text-ink focus:border-primary focus:outline-none cursor-pointer"
               aria-label="Filter by city"
             >
               <option value="all">By Radius (All Cities)</option>
@@ -400,27 +495,42 @@ export default function CivicMap() {
             </select>
           </div>
 
-          <select
-            value={radiusMeters}
-            onChange={(e) => setRadiusMeters(Number(e.target.value))}
-            className="glass-pill rounded-ios-xl border border-white/70 bg-white/60 px-3 py-1.5 text-xs font-bold text-ink shadow-sm backdrop-blur-md focus:outline-none cursor-pointer"
-            aria-label="Search radius"
-          >
-            {RADIUS_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-
-          <div className="glass-pill inline-flex items-center gap-1.5 rounded-ios-xl border border-white/70 bg-white/60 px-3 py-1.5 shadow-sm backdrop-blur-md">
-            <Funnel size={14} className="text-primary font-bold" />
+          <div>
+            <label
+              htmlFor="civic-map-radius"
+              className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-ink-soft"
+            >
+              Search Radius
+            </label>
             <select
+              id="civic-map-radius"
+              value={radiusMeters}
+              onChange={(e) => setRadiusMeters(Number(e.target.value))}
+              className="w-full rounded-xl border border-slate-200/90 bg-white/85 px-3 py-2 text-xs font-semibold text-ink focus:border-primary focus:outline-none cursor-pointer"
+              aria-label="Search radius"
+            >
+              {RADIUS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label
+              htmlFor="civic-map-category"
+              className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-ink-soft"
+            >
+              Issue Category
+            </label>
+            <select
+              id="civic-map-category"
               value={categoryFilter}
               onChange={(e) =>
                 setCategoryFilter(e.target.value as ComplaintCategory | "all")
               }
-              className="bg-transparent text-xs font-bold text-ink focus:outline-none cursor-pointer pr-1"
+              className="w-full rounded-xl border border-slate-200/90 bg-white/85 px-3 py-2 text-xs font-semibold text-ink focus:border-primary focus:outline-none cursor-pointer"
               aria-label="Filter by category"
             >
               <option value="all">All Categories</option>
@@ -432,17 +542,29 @@ export default function CivicMap() {
             </select>
           </div>
 
-          <button
-            type="button"
-            onClick={() => void loadNearby()}
-            disabled={loading}
-            className="glass-pill inline-flex items-center gap-1 rounded-ios-xl border border-white/70 bg-white/60 px-3 py-1.5 text-xs font-semibold text-ink-soft hover:text-ink cursor-pointer disabled:opacity-50"
-            title="Refresh map"
-          >
-            <ArrowsClockwise size={14} className={loading ? "animate-spin text-primary" : ""} />
-          </button>
+          <div>
+            <label
+              htmlFor="civic-map-status"
+              className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-ink-soft"
+            >
+              Status
+            </label>
+            <select
+              id="civic-map-status"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as ComplaintStatus | "all")}
+              className="w-full rounded-xl border border-slate-200/90 bg-white/85 px-3 py-2 text-xs font-semibold text-ink focus:border-primary focus:outline-none cursor-pointer"
+              aria-label="Filter by status"
+            >
+              <option value="all">All Statuses</option>
+              <option value="open">Open</option>
+              <option value="in_progress">In Progress</option>
+              <option value="resolved">Resolved</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </div>
         </div>
-      </div>
+      </ExpandableFilterBar>
 
       {error && (
         <div
@@ -477,9 +599,9 @@ export default function CivicMap() {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
 
-            <MapViewportController center={center} pins={pins} selected={selected} />
+            <MapViewportController center={center} pins={visiblePins} selected={selected} />
 
-            {pins.map((pin) => (
+            {visiblePins.map((pin) => (
               <Marker
                 key={pin.id}
                 position={[pin.latitude, pin.longitude]}
@@ -519,7 +641,7 @@ export default function CivicMap() {
           <span className="pointer-events-none absolute bottom-3.5 left-3.5 z-[1000] rounded-full border border-white/70 bg-white/85 px-3 py-1.5 text-[11px] font-semibold text-ink shadow-md backdrop-blur-md">
             {loading
               ? "Loading nearby issues…"
-              : `${pins.length} issue${pins.length === 1 ? "" : "s"} within ${(radiusMeters / 1000).toFixed(0)} km`}
+              : `${visiblePins.length} issue${visiblePins.length === 1 ? "" : "s"} within ${(radiusMeters / 1000).toFixed(0)} km`}
           </span>
 
           <div className="pointer-events-none absolute right-3.5 top-3.5 z-[1000] flex flex-col gap-1 rounded-2xl border border-white/70 bg-white/85 p-2.5 text-[11px] shadow-md backdrop-blur-md">
@@ -633,7 +755,7 @@ export default function CivicMap() {
             <div className="flex flex-col h-full min-h-0">
               <div className="flex items-center justify-between mb-3 shrink-0">
                 <h2 className="text-xs font-bold uppercase tracking-wider text-ink-soft">
-                  Nearby Reports ({pins.length})
+                  Nearby Reports ({visiblePins.length})
                 </h2>
                 <span className="text-[11px] font-semibold text-primary">
                   {(radiusMeters / 1000).toFixed(0)} km radius
@@ -645,19 +767,19 @@ export default function CivicMap() {
                   <ArrowsClockwise size={16} className="animate-spin text-primary" />
                   Scanning nearby reports…
                 </div>
-              ) : pins.length === 0 ? (
+              ) : visiblePins.length === 0 ? (
                 <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center py-10">
                   <MapPin size={26} weight="duotone" className="text-ink-soft/60" />
                   <p className="text-xs font-semibold text-ink">
                     No nearby issues found
                   </p>
                   <p className="text-[11px] text-ink-soft">
-                    Try expanding the radius filter or switching category.
+                    Try expanding the radius filter or adjusting status/category.
                   </p>
                 </div>
               ) : (
                 <ul className="flex flex-1 flex-col gap-2 overflow-y-auto pr-1">
-                  {pins.map((pin) => (
+                  {visiblePins.map((pin) => (
                     <li key={pin.id}>
                       <button
                         type="button"

@@ -6,6 +6,7 @@ CivicPulse is an AI-powered civic complaint & infrastructure intelligence platfo
 - **Layer 3 — Infrastructure Health Scores**: Deterministic 0–100 physical asset condition scoring, trend snapshots, sensitivity diagnostics, and maintenance tracking.
 - **Layer 4 — Civic Knowledge Graph**: PostgreSQL-backed multi-hop entity & relationship graph linking complaints, assets, hotspots, maintenance events, wards, and departments with explicit provenance and non-causal guardrails.
 - **Layer 5 — Multi-Agent AI**: 7-agent orchestrated investigation pipeline (`Priority`, `Investigation`, `Infrastructure`, `Spatial`, `Complaint`, `Recommendation`, `Report`) with read-only tool guardrails, zero-hallucination verification, non-causal framing, and human-in-the-loop recommendation confirmation.
+- **Layer 6 — Officer Copilot**: Morning Digest risk triage, persistent multi-turn conversational investigations, explainability panels (5-penalty breakdown, KG evidence chains, citizen tickets, agent trace), and human-confirmed action workflows (`/api/v1/copilot`, `/officer/copilot`).
 
 ## Prerequisites
 - Node.js 20+
@@ -18,7 +19,7 @@ CivicPulse is an AI-powered civic complaint & infrastructure intelligence platfo
 cd backend
 npm install
 cp .env.example .env   # Configure DATABASE_URL, JWT_SECRET, and optional GEMINI_API_KEY
-node setup-db.js       # Creates DB, applies migrations 000-016, seeds demo data, health snapshots & knowledge graph
+node setup-db.js       # Creates DB, applies migrations 000-017, seeds demo data, health snapshots & knowledge graph
 npm start              # Or npm run dev
 ```
 

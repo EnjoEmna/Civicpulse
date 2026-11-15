@@ -4,10 +4,10 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import ComplaintQueue from "./pages/ComplaintQueue";
 import ComplaintReview from "./pages/ComplaintReview";
-import IssueMap from "./pages/IssueMap";
 import SpatialIntelligence from "./pages/SpatialIntelligence";
 import InfrastructureHealth from "./pages/InfrastructureHealth";
 import KnowledgeGraph from "./pages/KnowledgeGraph";
+import OfficerCopilot from "./pages/OfficerCopilot";
 import OfficerProfile from "./pages/OfficerProfile";
 
 function isTokenValid(token: string | null): boolean {
@@ -66,7 +66,10 @@ export default function App() {
           <Route path="/officer/complaints" element={<ComplaintQueue />} />
           <Route path="/officer/complaints/:id" element={<ComplaintReview />} />
           <Route path="/officer/profile" element={<OfficerProfile />} />
-          <Route path="/officer/map" element={<IssueMap />} />
+          <Route
+            path="/officer/map"
+            element={<Navigate to="/officer/spatial-intelligence" replace />}
+          />
           <Route
             path="/officer/spatial-intelligence"
             element={<SpatialIntelligence />}
@@ -78,6 +81,10 @@ export default function App() {
           <Route
             path="/officer/knowledge-graph"
             element={<KnowledgeGraph />}
+          />
+          <Route
+            path="/officer/copilot"
+            element={<OfficerCopilot />}
           />
         </Route>
 

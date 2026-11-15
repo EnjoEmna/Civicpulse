@@ -11,7 +11,6 @@ import {
   Crosshair,
   Drop,
   FlowArrow,
-  Funnel,
   GlobeHemisphereEast,
   Graph,
   Heartbeat,
@@ -22,6 +21,7 @@ import {
   MapPin,
   Path,
   RoadHorizon,
+  Robot,
   ShareNetwork,
   ShieldWarning,
   Sparkle,
@@ -33,6 +33,7 @@ import {
   Wrench,
   X,
 } from "@phosphor-icons/react";
+import { ExpandableFilterBar, type ActiveFilterChip } from "../components/ExpandableFilterBar";
 import { api } from "../api/client";
 import type { ActiveCitiesResponse } from "../types/spatial";
 import type {
@@ -369,8 +370,11 @@ export default function KnowledgeGraph() {
 
   const [selectedCity, setSelectedCity] = useState<string>("all");
   const [entityTypeFilter, setEntityTypeFilter] = useState<"all" | GraphEntityType>("all");
+  const [relationFilter, setRelationFilter] = useState<string>("all");
+  const [traversalDepth, setTraversalDepth] = useState<number>(2);
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [includeInferred, setIncludeInferred] = useState<boolean>(true);
+  const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
   const [metricsOpen, setMetricsOpen] = useState<boolean>(false);
 
   const [citiesData, setCitiesData] = useState<ActiveCitiesResponse | null>(null);
@@ -494,7 +498,7 @@ export default function KnowledgeGraph() {
           }
         } else {
           const res = await api.getGraphNodeNeighborhood(cleanKey, {
-            depth: 2,
+            depth: traversalDepth,
             maxNodes: 75,
             includeInferred: useInferred,
           });
@@ -509,7 +513,7 @@ export default function KnowledgeGraph() {
         setLoadingGraph(false);
       }
     },
-    [applyInvestigationPayload, includeInferred, setSearchParams],
+    [applyInvestigationPayload, includeInferred, setSearchParams, traversalDepth],
   );
 
   const refreshOverviewAndMetrics = useCallback(
@@ -807,10 +811,77 @@ export default function KnowledgeGraph() {
         (e) =>
           radial.visibleIds.has(e.sourceNodeId) &&
           radial.visibleIds.has(e.targetNodeId) &&
-          (includeInferred || !e.isInferred),
+          (includeInferred || !e.isInferred) &&
+          (relationFilter === "all" ||
+            e.relationType.toUpperCase() === relationFilter.toUpperCase()),
       ),
-    [canvasEdges, includeInferred, radial.visibleIds],
+    [canvasEdges, includeInferred, radial.visibleIds, relationFilter],
   );
+
+  const availableRelations = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of canvasEdges) {
+      if (e.relationType) set.add(e.relationType.toUpperCase());
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [canvasEdges]);
+
+  const activeFilterChips = useMemo<ActiveFilterChip[]>(() => {
+    const chips: ActiveFilterChip[] = [];
+    if (selectedCity !== "all") {
+      chips.push({
+        key: "city",
+        label: `City: ${selectedCity}`,
+        onRemove: () => void handleSelectCity("all"),
+      });
+    }
+    if (entityTypeFilter !== "all") {
+      const lbl =
+        ENTITY_FILTER_OPTIONS.find((o) => o.value === entityTypeFilter)?.label ||
+        entityTypeFilter;
+      chips.push({
+        key: "entityType",
+        label: `Entity: ${lbl}`,
+        onRemove: () => setEntityTypeFilter("all"),
+      });
+    }
+    if (!includeInferred) {
+      chips.push({
+        key: "inferred",
+        label: "Factual Links Only",
+        onRemove: () => void handleToggleInferred(),
+      });
+    }
+    if (relationFilter !== "all") {
+      chips.push({
+        key: "relation",
+        label: `Relation: ${formatRelationLabel(relationFilter)}`,
+        onRemove: () => setRelationFilter("all"),
+      });
+    }
+    if (traversalDepth !== 2) {
+      chips.push({
+        key: "depth",
+        label: `${traversalDepth}-Hop View`,
+        onRemove: () => setTraversalDepth(2),
+      });
+    }
+    return chips;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCity, entityTypeFilter, includeInferred, relationFilter, traversalDepth]);
+
+  function handleResetGraphFilters() {
+    setEntityTypeFilter("all");
+    setRelationFilter("all");
+    setTraversalDepth(2);
+    setSearchTerm("");
+    if (!includeInferred) {
+      void handleToggleInferred();
+    }
+    if (selectedCity !== "all") {
+      void handleSelectCity("all");
+    }
+  }
 
   const navigatorNodes = useMemo(() => {
     const byKey = new Map<string, GraphNode>();
@@ -1062,112 +1133,16 @@ export default function KnowledgeGraph() {
         </div>
       )}
 
-      {/* Filter, Flagship Targets & Inferred Link Controls */}
-      <div className="glass-panel flex flex-col gap-3 p-4">
-        <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
-          {/* City Pills */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-ink-soft">
-              <GlobeHemisphereEast size={14} className="text-primary" />
-              Jurisdiction:
-            </span>
-            <button
-              type="button"
-              onClick={() => void handleSelectCity("all")}
-              className={`rounded-full px-3 py-1 text-xs font-bold transition cursor-pointer ${
-                selectedCity === "all"
-                  ? "bg-primary text-white shadow-sm"
-                  : "border border-white/70 bg-white/65 text-ink-soft hover:bg-white"
-              }`}
-            >
-              All Cities
-            </button>
-            {availableCities.map((city) => {
-              const active = selectedCity.toLowerCase() === city.toLowerCase();
-              return (
-                <button
-                  key={city}
-                  type="button"
-                  onClick={() => void handleSelectCity(city)}
-                  className={`rounded-full px-3 py-1 text-xs font-bold transition cursor-pointer ${
-                    active
-                      ? "bg-primary text-white shadow-sm"
-                      : "border border-white/70 bg-white/65 text-ink-soft hover:bg-white"
-                  }`}
-                >
-                  {city}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Toggle Inferred Relationships */}
-          <button
-            type="button"
-            onClick={() => void handleToggleInferred()}
-            aria-pressed={includeInferred}
-            className={`inline-flex items-center gap-2 self-start rounded-full border px-3.5 py-1.5 text-xs font-bold transition cursor-pointer ${
-              includeInferred
-                ? "border-amber-300 bg-amber-50/90 text-amber-900 shadow-sm"
-                : "border-slate-200 bg-white/70 text-ink-soft hover:bg-white"
-            }`}
-          >
-            <span
-              className={`h-2 w-2 rounded-full ${
-                includeInferred ? "bg-amber-500" : "bg-slate-400"
-              }`}
-            />
-            Show Inferred Links {includeInferred ? "(On)" : "(Off)"}
-          </button>
-        </div>
-
-        {/* Flagship Investigation Targets */}
-        {overview && overview.flagshipTargets.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 border-t border-white/50 pt-2.5">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
-              Priority Asset Targets:
-            </span>
-            {overview.flagshipTargets.map((target: FlagshipTarget) => {
-              const isActive =
-                centerNode?.nodeKey === target.nodeKey ||
-                String(centerNode?.properties?.assetCode || "") === target.assetCode;
-              return (
-                <button
-                  key={target.nodeKey}
-                  type="button"
-                  onClick={() => void loadTarget("asset", target.assetCode, { recordHistory: true })}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition cursor-pointer ${
-                    isActive
-                      ? "border-indigo-400 bg-indigo-600 text-white shadow-sm"
-                      : "border-white/80 bg-white/70 text-ink hover:bg-white"
-                  }`}
-                >
-                  <span className="font-mono">{target.assetCode}</span>
-                  {target.healthScore != null && (
-                    <span
-                      className={`rounded-full px-1.5 py-0.5 text-[10px] font-extrabold ${
-                        isActive
-                          ? "bg-white/20 text-white"
-                          : getGradeBadgeCls(target.healthGrade)
-                      }`}
-                    >
-                      {target.healthScore} {target.healthGrade}
-                    </span>
-                  )}
-                  {target.city && (
-                    <span className={isActive ? "text-indigo-100" : "text-ink-soft"}>
-                      · {target.city}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Search + Entity Type Filter */}
-        <div className="flex flex-col gap-2.5 border-t border-white/50 pt-2.5 lg:flex-row lg:items-center lg:justify-between">
-          <div className="relative w-full lg:max-w-sm">
+      {/* Clean Compact Filter Bar + Expandable Panel */}
+      <ExpandableFilterBar
+        isOpen={filtersOpen}
+        onToggle={() => setFiltersOpen((prev) => !prev)}
+        activeCount={activeFilterChips.length}
+        chips={activeFilterChips}
+        onResetAll={handleResetGraphFilters}
+        panelTitle="Knowledge Graph Filters & Traversal Controls"
+        leading={
+          <div className="relative min-w-[220px] flex-1 max-w-sm">
             <MagnifyingGlass
               size={14}
               className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-soft"
@@ -1176,34 +1151,202 @@ export default function KnowledgeGraph() {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search node by asset code, CP reference, ward, or issue..."
+              placeholder="Search node (asset code, CP ref, ward)…"
               aria-label="Search Knowledge Graph entities"
-              className="glass-input w-full py-1.5 pl-8 pr-3 text-xs"
+              className="glass-input w-full py-2 pl-8 pr-3 text-xs"
             />
           </div>
+        }
+        trailing={
+          overview && overview.flagshipTargets.length > 0 ? (
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-ink-soft hidden sm:inline">
+                Focus Target:
+              </span>
+              <select
+                value={
+                  overview.flagshipTargets.some(
+                    (t) => String(centerNode?.properties?.assetCode || "") === t.assetCode,
+                  )
+                    ? String(centerNode?.properties?.assetCode || "")
+                    : ""
+                }
+                onChange={(e) => {
+                  if (e.target.value) {
+                    void loadTarget("asset", e.target.value, { recordHistory: true });
+                  }
+                }}
+                aria-label="Quick focus priority infrastructure target"
+                className="glass-input py-2 pl-3 pr-7 text-xs font-bold text-ink cursor-pointer"
+              >
+                <option value="" disabled>
+                  Select Priority Target…
+                </option>
+                {overview.flagshipTargets.map((target: FlagshipTarget) => (
+                  <option key={target.nodeKey} value={target.assetCode}>
+                    {target.assetCode}
+                    {target.healthScore != null ? ` (${target.healthScore} ${target.healthGrade})` : ""}
+                    {target.city ? ` · ${target.city}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null
+        }
+      >
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {/* Jurisdiction */}
+          <div className="flex flex-col gap-1.5">
+            <label className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              <GlobeHemisphereEast size={13} className="text-primary" />
+              Jurisdiction (City)
+            </label>
+            <select
+              value={selectedCity}
+              onChange={(e) => void handleSelectCity(e.target.value)}
+              aria-label="Filter graph by city"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              <option value="all">All Cities</option>
+              {availableCities.map((city) => (
+                <option key={city} value={city}>
+                  {city}
+                </option>
+              ))}
+            </select>
+          </div>
 
-          <div className="flex flex-wrap items-center gap-1">
-            <Funnel size={13} className="mr-1 text-ink-soft" />
-            {ENTITY_FILTER_OPTIONS.map((opt) => {
-              const active = entityTypeFilter === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setEntityTypeFilter(opt.value)}
-                  className={`rounded-full px-2.5 py-1 text-[11px] font-bold transition cursor-pointer ${
-                    active
-                      ? "bg-slate-800 text-white shadow-sm"
-                      : "border border-white/70 bg-white/60 text-ink-soft hover:bg-white"
-                  }`}
-                >
+          {/* Entity Type */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Entity Type
+            </label>
+            <select
+              value={entityTypeFilter}
+              onChange={(e) => setEntityTypeFilter(e.target.value as "all" | GraphEntityType)}
+              aria-label="Filter graph entities by type"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              {ENTITY_FILTER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
                   {opt.label}
-                </button>
-              );
-            })}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Edge Relation Filter */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Relationship Type
+            </label>
+            <select
+              value={relationFilter}
+              onChange={(e) => setRelationFilter(e.target.value)}
+              aria-label="Filter visible graph edges by relationship type"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              <option value="all">All Relationship Types</option>
+              {availableRelations.map((rel) => (
+                <option key={rel} value={rel}>
+                  {formatRelationLabel(rel)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Traversal Hop Depth */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Graph Hop Depth
+            </label>
+            <select
+              value={String(traversalDepth)}
+              onChange={(e) => {
+                const nextDepth = Number(e.target.value);
+                setTraversalDepth(nextDepth);
+                if (mode === "node" && targetKey) {
+                  void api
+                    .getGraphNodeNeighborhood(targetKey, {
+                      depth: nextDepth,
+                      maxNodes: 75,
+                      includeInferred,
+                    })
+                    .then((res) =>
+                      applyInvestigationPayload("node", res.centerNode.nodeKey, res, false),
+                    )
+                    .catch(() => {});
+                }
+              }}
+              aria-label="Neighborhood hop depth"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              <option value="1">1-Hop Direct Links</option>
+              <option value="2">2-Hop Context (Recommended)</option>
+              <option value="3">3-Hop Extended Trace</option>
+            </select>
           </div>
         </div>
-      </div>
+
+        {/* Inference Mode & Priority Asset Quick Buttons inside Drawer */}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/70 pt-3">
+          <button
+            type="button"
+            onClick={() => void handleToggleInferred()}
+            aria-pressed={includeInferred}
+            className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-bold transition cursor-pointer ${
+              includeInferred
+                ? "border-amber-300 bg-amber-50/90 text-amber-900 shadow-2xs"
+                : "border-slate-200 bg-white text-ink-soft hover:bg-slate-50"
+            }`}
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${
+                includeInferred ? "bg-amber-500" : "bg-slate-400"
+              }`}
+            />
+            Show Inferred Non-Causal Links {includeInferred ? "(Enabled)" : "(Disabled)"}
+          </button>
+
+          {overview && overview.flagshipTargets.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-bold text-ink-soft mr-1">Priority Assets:</span>
+              {overview.flagshipTargets.map((target: FlagshipTarget) => {
+                const isActive =
+                  centerNode?.nodeKey === target.nodeKey ||
+                  String(centerNode?.properties?.assetCode || "") === target.assetCode;
+                return (
+                  <button
+                    key={target.nodeKey}
+                    type="button"
+                    onClick={() =>
+                      void loadTarget("asset", target.assetCode, { recordHistory: true })
+                    }
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition cursor-pointer ${
+                      isActive
+                        ? "border-indigo-400 bg-indigo-600 text-white shadow-sm"
+                        : "border-white/80 bg-white text-ink hover:bg-indigo-50"
+                    }`}
+                  >
+                    <span className="font-mono">{target.assetCode}</span>
+                    {target.healthScore != null && (
+                      <span
+                        className={`rounded-full px-1.5 py-0.5 text-[10px] font-extrabold ${
+                          isActive
+                            ? "bg-white/20 text-white"
+                            : getGradeBadgeCls(target.healthGrade)
+                        }`}
+                      >
+                        {target.healthScore}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </ExpandableFilterBar>
 
       {/* Main Split Explorer */}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.28fr)_minmax(0,0.92fr)] xl:items-start">
@@ -1670,6 +1813,27 @@ export default function KnowledgeGraph() {
             {/* Deep Links back into Layer 2 / Layer 3 / Case Review */}
             {centerNode && (
               <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                {(centerNode.entityType === "INFRASTRUCTURE_ASSET" ||
+                  centerNode.entityType === "COMPLAINT") && (
+                  <Link
+                    to={
+                      centerNode.entityType === "INFRASTRUCTURE_ASSET"
+                        ? `/officer/copilot?assetCode=${encodeURIComponent(
+                            String(centerNode.properties?.assetCode || centerNode.label),
+                          )}&q=${encodeURIComponent(
+                            `Investigate ${String(centerNode.properties?.assetCode || centerNode.label)} and upstream non-causal contributors`,
+                          )}`
+                        : `/officer/copilot?complaintId=${encodeURIComponent(
+                            centerNode.externalId || centerNode.label,
+                          )}`
+                    }
+                    className="inline-flex items-center gap-1 rounded-xl border border-purple-200 bg-purple-50/90 px-3 py-1.5 text-xs font-bold text-purple-800 transition hover:bg-purple-100"
+                  >
+                    <Robot size={13} weight="bold" />
+                    Ask Copilot
+                  </Link>
+                )}
+
                 {centerNode.entityType === "INFRASTRUCTURE_ASSET" && (
                   <Link
                     to={`/officer/infrastructure-health?assetId=${encodeURIComponent(

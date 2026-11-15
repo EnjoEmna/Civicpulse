@@ -45,6 +45,15 @@ import type {
   RebuildGraphResponse,
   ShortestPathResponse,
 } from "../types/graph";
+import type {
+  AskCopilotResponse,
+  CopilotMessage,
+  CopilotMetricsResponse,
+  CopilotRecommendation,
+  CopilotSession,
+  MorningDigestResponse,
+  RecommendationDecisionStatus,
+} from "../types/copilot";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000/api/v1";
 const API_ORIGIN = BASE_URL.replace(/\/api\/v1\/?$/, "");
@@ -813,6 +822,93 @@ export const api = {
         method: "POST",
         body: JSON.stringify(city && city !== "all" ? { city } : {}),
       },
+    );
+    return response.data;
+  },
+
+  getCopilotDigest: async (params?: {
+    city?: string;
+    limit?: number;
+  }): Promise<MorningDigestResponse> => {
+    const searchParams = new URLSearchParams();
+    if (params?.city && params.city !== "all") searchParams.set("city", params.city);
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    const qs = searchParams.toString();
+    const response = await request<{ success: boolean; data: MorningDigestResponse }>(
+      `/copilot/digest${qs ? `?${qs}` : ""}`,
+    );
+    return response.data;
+  },
+
+  askCopilot: async (payload: {
+    question: string;
+    sessionId?: string | null;
+    targetType?: string | null;
+    targetId?: string | null;
+    assetCode?: string | null;
+    complaintId?: string | null;
+    city?: string | null;
+    ward?: string | null;
+    includeInferred?: boolean;
+    useGemini?: boolean;
+  }): Promise<AskCopilotResponse> => {
+    const response = await request<{ success: boolean; data: AskCopilotResponse }>(
+      "/copilot/ask",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    );
+    return response.data;
+  },
+
+  listCopilotSessions: async (params?: {
+    city?: string;
+    limit?: number;
+  }): Promise<{ total: number; sessions: CopilotSession[] }> => {
+    const searchParams = new URLSearchParams();
+    if (params?.city && params.city !== "all") searchParams.set("city", params.city);
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    const qs = searchParams.toString();
+    const response = await request<{
+      success: boolean;
+      data: { total: number; sessions: CopilotSession[] };
+    }>(`/copilot/sessions${qs ? `?${qs}` : ""}`);
+    return response.data;
+  },
+
+  getCopilotSession: async (
+    sessionId: string,
+  ): Promise<{ session: CopilotSession; messages: CopilotMessage[] }> => {
+    const response = await request<{
+      success: boolean;
+      data: { session: CopilotSession; messages: CopilotMessage[] };
+    }>(`/copilot/sessions/${encodeURIComponent(sessionId)}`);
+    return response.data;
+  },
+
+  decideCopilotRecommendation: async (
+    recommendationId: string,
+    payload: {
+      decision: Exclude<RecommendationDecisionStatus, "PENDING">;
+      modifiedAction?: string | null;
+      decisionNote?: string | null;
+    },
+  ): Promise<{ recommendation: CopilotRecommendation }> => {
+    const response = await request<{
+      success: boolean;
+      data: { recommendation: CopilotRecommendation };
+    }>(`/copilot/recommendations/${encodeURIComponent(recommendationId)}/decision`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    return response.data;
+  },
+
+  getCopilotMetrics: async (city?: string): Promise<CopilotMetricsResponse> => {
+    const qs = city && city !== "all" ? `?city=${encodeURIComponent(city)}` : "";
+    const response = await request<{ success: boolean; data: CopilotMetricsResponse }>(
+      `/copilot/metrics${qs}`,
     );
     return response.data;
   },

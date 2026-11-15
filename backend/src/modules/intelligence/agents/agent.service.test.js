@@ -588,10 +588,10 @@ describe("Layer 5 Intelligence: Multi-Agent AI Orchestration & Guardrails", () =
     expect(res.body.data.recommendationLifecycle.acceptanceRatePercent).toBe(75);
   });
 
-  test("Layer 6 Officer Copilot routes remain unmounted (held for teammate)", async () => {
+  test("Layer 6 Officer Copilot routes enforce RBAC (citizen receives 403 Forbidden)", async () => {
     const res = await request(app)
       .get("/api/v1/copilot/digest")
-      .set("Authorization", `Bearer ${officerToken}`);
-    expect(res.status).toBe(404);
+      .set("Authorization", `Bearer ${citizenToken}`);
+    expect(res.status).toBe(403);
   });
 });

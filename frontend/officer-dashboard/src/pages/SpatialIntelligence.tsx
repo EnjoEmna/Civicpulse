@@ -13,6 +13,7 @@ import {
   Clock,
   GlobeHemisphereEast,
 } from "@phosphor-icons/react";
+import { ExpandableFilterBar, type ActiveFilterChip } from "../components/ExpandableFilterBar";
 import { api } from "../api/client";
 import type {
   ActiveCitiesResponse,
@@ -181,7 +182,12 @@ export default function SpatialIntelligence() {
   const [clusterDistance, setClusterDistance] = useState("150");
   const [minClusterSize, setMinClusterSize] = useState("2");
 
-  const [hotspotFilter, setHotspotFilter] = useState<"ALL" | "ACTIVE" | "OVERLAP">("ALL");
+  const [hotspotFilter, setHotspotFilter] = useState<
+    "ALL" | "ACTIVE" | "OVERLAP" | "MONITORING" | "RESOLVED"
+  >("ALL");
+  const [severityFilter, setSeverityFilter] = useState<string>("all");
+  const [minHotspotCount, setMinHotspotCount] = useState<number>(0);
+  const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
   const [hotspotsData, setHotspotsData] = useState<HotspotListResponse | null>(null);
   const [wardsData, setWardsData] = useState<WardAnalyticsResponse | null>(null);
   const [nearbyResult, setNearbyResult] = useState<SpatialAnalysisResult | null>(null);
@@ -216,9 +222,13 @@ export default function SpatialIntelligence() {
     setLoading(true);
     setError(null);
     try {
+      const apiStatus =
+        filter === "ACTIVE" || filter === "MONITORING" || filter === "RESOLVED"
+          ? filter
+          : undefined;
       const data = await api.getHotspots({
         city: city !== "all" ? city : undefined,
-        status: filter === "ACTIVE" ? "ACTIVE" : undefined,
+        status: apiStatus,
         overlapOnly: filter === "OVERLAP",
         limit: 50,
       });
@@ -601,8 +611,97 @@ export default function SpatialIntelligence() {
 
   const activeNearby = mode === "nearby" ? nearbyResult : null;
   const activeClusters = mode === "clusters" ? clusterResult : null;
-  const activeHotspots = mode === "hotspots" ? hotspotsData : null;
+  const filteredHotspots = useMemo(() => {
+    if (!hotspotsData) return [];
+    return hotspotsData.hotspots.filter((h) => {
+      if (severityFilter !== "all" && h.severity.toUpperCase() !== severityFilter) {
+        return false;
+      }
+      if (minHotspotCount > 0 && h.complaintCount < minHotspotCount) {
+        return false;
+      }
+      if (
+        category !== "all" &&
+        !(h.overlapCategories || []).includes(category) &&
+        !(h.issueCategories || []).includes(category) &&
+        h.dominantCategory !== category
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [hotspotsData, severityFilter, minHotspotCount, category]);
+
+  const activeHotspots =
+    mode === "hotspots" && hotspotsData
+      ? { ...hotspotsData, hotspots: filteredHotspots }
+      : null;
   const activeWards = mode === "wards" ? wardsData : null;
+
+  const activeFilterChips = useMemo<ActiveFilterChip[]>(() => {
+    const chips: ActiveFilterChip[] = [];
+    if (selectedCity !== "all") {
+      chips.push({
+        key: "city",
+        label: `City: ${selectedCity}`,
+        onRemove: () => void handleSelectCity("all", null),
+      });
+    }
+    if (hotspotFilter !== "ALL") {
+      const hLbl =
+        hotspotFilter === "ACTIVE"
+          ? "Active Only"
+          : hotspotFilter === "OVERLAP"
+            ? "Overlap Alerts"
+            : hotspotFilter;
+      chips.push({
+        key: "hotspotScope",
+        label: `Hotspots: ${hLbl}`,
+        onRemove: () => setHotspotFilter("ALL"),
+      });
+    }
+    if (severityFilter !== "all") {
+      chips.push({
+        key: "severity",
+        label: `Severity: ${severityFilter}`,
+        onRemove: () => setSeverityFilter("all"),
+      });
+    }
+    if (category !== "all") {
+      chips.push({
+        key: "cat",
+        label: `Category: ${CATEGORIES.find((c) => c.value === category)?.label || category}`,
+        onRemove: () => setCategory("all"),
+      });
+    }
+    if (timeWindowDays) {
+      chips.push({
+        key: "time",
+        label: `Last ${timeWindowDays}d`,
+        onRemove: () => setTimeWindowDays(""),
+      });
+    }
+    if (minHotspotCount > 0) {
+      chips.push({
+        key: "minCount",
+        label: `≥ ${minHotspotCount} Reports`,
+        onRemove: () => setMinHotspotCount(0),
+      });
+    }
+    return chips;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCity, hotspotFilter, severityFilter, category, timeWindowDays, minHotspotCount]);
+
+  function handleResetSpatialFilters() {
+    setHotspotFilter("ALL");
+    setSeverityFilter("all");
+    setCategory("all");
+    setTimeWindowDays("");
+    setMinHotspotCount(0);
+    if (selectedCity !== "all") {
+      void handleSelectCity("all", null);
+    }
+  }
 
   const fallbackCenter = {
     latitude: Number(latitude) || 17.4156,
@@ -681,55 +780,18 @@ export default function SpatialIntelligence() {
         </button>
       </div>
 
-      {/* Multi-city Jurisdiction Filter + Place Search Bar */}
-      <div className="glass-panel flex flex-col gap-3 p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-ink-soft">
-              <GlobeHemisphereEast size={14} className="text-primary" />
-              Jurisdiction:
-            </span>
-            <button
-              type="button"
-              onClick={() => void handleSelectCity("all", null)}
-              className={`rounded-full px-3 py-1 text-xs font-bold transition cursor-pointer ${
-                selectedCity === "all"
-                  ? "bg-primary text-white shadow-sm"
-                  : "border border-white/70 bg-white/60 text-ink-soft hover:bg-white"
-              }`}
-            >
-              All Cities
-            </button>
-            {(citiesData?.cities || []).map((cityItem) => {
-              const active =
-                selectedCity.toLowerCase() === cityItem.city.toLowerCase();
-              return (
-                <button
-                  key={cityItem.city}
-                  type="button"
-                  onClick={() => void handleSelectCity(cityItem.city, cityItem.center)}
-                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold transition cursor-pointer ${
-                    active
-                      ? "bg-primary text-white shadow-sm"
-                      : "border border-white/70 bg-white/60 text-ink-soft hover:bg-white"
-                  }`}
-                >
-                  <span>{cityItem.city}</span>
-                  <span
-                    className={`rounded-full px-1.5 py-0.2 text-[10px] font-mono ${
-                      active ? "bg-white/20 text-white" : "bg-slate-200/70 text-ink"
-                    }`}
-                  >
-                    {cityItem.complaintCount}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="relative flex flex-wrap items-center gap-2">
-            <form onSubmit={(e) => void handlePlaceSearch(e)} className="flex items-center gap-1.5">
-              <div className="relative">
+      {/* Clean Compact Jurisdiction + Search + Expandable Filter Drawer */}
+      <ExpandableFilterBar
+        isOpen={filtersOpen}
+        onToggle={() => setFiltersOpen((prev) => !prev)}
+        activeCount={activeFilterChips.length}
+        chips={activeFilterChips}
+        onResetAll={handleResetSpatialFilters}
+        panelTitle="Spatial Jurisdiction, Hotspot & Category Filters"
+        leading={
+          <div className="relative flex flex-1 flex-wrap items-center gap-2 min-w-[240px]">
+            <form onSubmit={(e) => void handlePlaceSearch(e)} className="flex flex-1 items-center gap-1.5 max-w-sm">
+              <div className="relative flex-1">
                 <MagnifyingGlass
                   size={14}
                   className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-soft"
@@ -740,30 +802,20 @@ export default function SpatialIntelligence() {
                   onChange={(e) => setPlaceQuery(e.target.value)}
                   placeholder="Jump to city, town, or ward..."
                   aria-label="Search city or place"
-                  className="glass-input w-56 sm:w-64 py-1.5 pl-8 pr-3 text-xs"
+                  className="glass-input w-full py-2 pl-8 pr-3 text-xs"
                 />
               </div>
               <button
                 type="submit"
                 disabled={searchingPlace}
-                className="rounded-xl border border-indigo-200 bg-indigo-50/80 px-3 py-1.5 text-xs font-bold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60 cursor-pointer"
+                className="rounded-xl border border-indigo-200 bg-indigo-50/80 px-3 py-2 text-xs font-bold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60 cursor-pointer"
               >
                 {searchingPlace ? "Finding..." : "Go"}
               </button>
             </form>
 
-            <button
-              type="button"
-              onClick={handleUseMyLocation}
-              disabled={locating}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-white/70 bg-white/70 px-3 py-1.5 text-xs font-bold text-primary hover:bg-white cursor-pointer disabled:opacity-60"
-            >
-              <Crosshair size={14} weight="bold" />
-              {locating ? "Locating..." : "Use My Location"}
-            </button>
-
             {placeResults.length > 0 && (
-              <div className="absolute right-0 top-10 z-[1100] w-80 max-w-[90vw] overflow-hidden rounded-2xl border border-white/80 bg-white/95 shadow-xl backdrop-blur-xl">
+              <div className="absolute left-0 top-11 z-[1100] w-80 max-w-[90vw] overflow-hidden rounded-2xl border border-white/80 bg-white/95 shadow-xl backdrop-blur-xl">
                 <div className="flex items-center justify-between border-b border-slate-100 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-soft">
                   <span>Matching Places</span>
                   <button
@@ -798,8 +850,125 @@ export default function SpatialIntelligence() {
               </div>
             )}
           </div>
+        }
+        trailing={
+          <button
+            type="button"
+            onClick={handleUseMyLocation}
+            disabled={locating}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-white/75 bg-white/75 px-3 py-2 text-xs font-bold text-primary hover:bg-white cursor-pointer disabled:opacity-60"
+          >
+            <Crosshair size={14} weight="bold" />
+            {locating ? "Locating..." : "Use My Location"}
+          </button>
+        }
+      >
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          {/* Jurisdiction */}
+          <div className="flex flex-col gap-1.5">
+            <label className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              <GlobeHemisphereEast size={13} className="text-primary" />
+              Jurisdiction (City)
+            </label>
+            <select
+              value={selectedCity}
+              onChange={(e) => {
+                const cName = e.target.value;
+                const found = (citiesData?.cities || []).find((c) => c.city === cName);
+                void handleSelectCity(cName, found?.center ?? null);
+              }}
+              aria-label="Filter spatial data by city"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              <option value="all">All Cities</option>
+              {(citiesData?.cities || []).map((c) => (
+                <option key={c.city} value={c.city}>
+                  {c.city} ({c.complaintCount})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Hotspot Scope */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Hotspot Scope
+            </label>
+            <select
+              value={hotspotFilter}
+              onChange={(e) =>
+                setHotspotFilter(
+                  e.target.value as "ALL" | "ACTIVE" | "OVERLAP" | "MONITORING" | "RESOLVED",
+                )
+              }
+              aria-label="Filter hotspots by status or overlap"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              <option value="ALL">All Hotspots</option>
+              <option value="ACTIVE">Active Only</option>
+              <option value="OVERLAP">Cross-Category Overlaps</option>
+              <option value="MONITORING">Monitoring</option>
+              <option value="RESOLVED">Resolved</option>
+            </select>
+          </div>
+
+          {/* Hotspot Severity */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Hotspot Severity
+            </label>
+            <select
+              value={severityFilter}
+              onChange={(e) => setSeverityFilter(e.target.value)}
+              aria-label="Filter hotspots by severity"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              <option value="all">All Severities</option>
+              <option value="CRITICAL">CRITICAL</option>
+              <option value="HIGH">HIGH</option>
+              <option value="MEDIUM">MEDIUM</option>
+              <option value="LOW">LOW</option>
+            </select>
+          </div>
+
+          {/* Category Filter */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Complaint Category
+            </label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              aria-label="Filter by category"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              {CATEGORIES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Minimum Complaints */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Min Cluster Reports
+            </label>
+            <select
+              value={String(minHotspotCount)}
+              onChange={(e) => setMinHotspotCount(Number(e.target.value))}
+              aria-label="Filter hotspots by minimum complaint count"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              <option value="0">Any Size</option>
+              <option value="2">≥ 2 Complaints</option>
+              <option value="3">≥ 3 Complaints</option>
+              <option value="5">≥ 5 Complaints</option>
+            </select>
+          </div>
         </div>
-      </div>
+      </ExpandableFilterBar>
 
       {/* Analysis mode selector */}
       <div className="glass-panel grid grid-cols-2 gap-2 p-2 lg:grid-cols-4">
@@ -1125,28 +1294,11 @@ export default function SpatialIntelligence() {
                 />
               </div>
 
-              {/* Filter toolbar */}
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    { id: "ALL" as const, label: "All Hotspots" },
-                    { id: "ACTIVE" as const, label: "Active Only" },
-                    { id: "OVERLAP" as const, label: "Cross-Category Overlap Alerts" },
-                  ].map((tab) => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => setHotspotFilter(tab.id)}
-                      className={`rounded-full px-3.5 py-1.5 text-xs font-bold transition cursor-pointer ${
-                        hotspotFilter === tab.id
-                          ? "bg-primary text-white shadow-sm"
-                          : "border border-white/70 bg-white/60 text-ink-soft hover:bg-white"
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
+                <p className="text-xs font-bold uppercase tracking-wider text-ink-soft">
+                  Showing {activeHotspots.hotspots.length} hotspot
+                  {activeHotspots.hotspots.length === 1 ? "" : "s"}
+                </p>
               </div>
 
               {activeHotspots.hotspots.length > 0 ? (

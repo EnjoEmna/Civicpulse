@@ -10,7 +10,6 @@ import {
   ClockCounterClockwise,
   Crosshair,
   Drop,
-  Funnel,
   Gauge,
   GlobeHemisphereEast,
   Heartbeat,
@@ -20,6 +19,7 @@ import {
   Minus,
   Plus,
   RoadHorizon,
+  Robot,
   ShareNetwork,
   ShieldCheck,
   SlidersHorizontal,
@@ -31,6 +31,7 @@ import {
   Wrench,
   X,
 } from "@phosphor-icons/react";
+import { ExpandableFilterBar, type ActiveFilterChip } from "../components/ExpandableFilterBar";
 import { api } from "../api/client";
 import type { ActiveCitiesResponse } from "../types/spatial";
 import type {
@@ -370,8 +371,13 @@ export default function InfrastructureHealth() {
   const [selectedWard, setSelectedWard] = useState<string>(initialWard);
   const [assetTypeFilter, setAssetTypeFilter] = useState<"all" | AssetType>("all");
   const [gradeFilter, setGradeFilter] = useState<"all" | HealthGrade>("all");
+  const [conditionFilter, setConditionFilter] = useState<
+    "all" | "deteriorating" | "overdue" | "cross_impact"
+  >("all");
+  const [minOpenIssues, setMinOpenIssues] = useState<number>(0);
   const [sortBy, setSortBy] = useState<string>("lowest_health");
   const [searchTerm, setSearchTerm] = useState<string>("");
+  const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
 
   const [citiesData, setCitiesData] = useState<ActiveCitiesResponse | null>(null);
   const [overview, setOverview] = useState<InfrastructureOverviewResponse | null>(null);
@@ -665,16 +671,118 @@ export default function InfrastructureHealth() {
     return Array.from(names).sort((a, b) => a.localeCompare(b));
   }, [citiesData, overview]);
 
+  const availableWards = useMemo(() => {
+    const names = new Set<string>();
+    for (const w of overview?.wards || []) {
+      if (
+        w.ward &&
+        (selectedCity === "all" || (w.city || "").toLowerCase() === selectedCity.toLowerCase())
+      ) {
+        names.add(w.ward);
+      }
+    }
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [overview?.wards, selectedCity]);
+
   const filteredAssets = useMemo(() => {
     const list = overview?.assets || [];
     const q = searchTerm.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter((a) =>
-      [a.assetCode, a.name, a.ward, a.city, a.address, a.department, a.assetTypeLabel]
+    return list.filter((a) => {
+      if (conditionFilter === "deteriorating" && a.trend !== "DETERIORATING") {
+        return false;
+      }
+      if (conditionFilter === "overdue" && (a.maintenanceAgeMonths == null || a.maintenanceAgeMonths < 6)) {
+        return false;
+      }
+      if (conditionFilter === "cross_impact" && (a.scoreBreakdown?.factors?.crossImpactCount ?? 0) === 0) {
+        return false;
+      }
+      if (minOpenIssues > 0 && (a.openComplaintCount ?? 0) < minOpenIssues) {
+        return false;
+      }
+      if (!q) return true;
+      return [a.assetCode, a.name, a.ward, a.city, a.address, a.department, a.assetTypeLabel]
         .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q)),
-    );
-  }, [overview?.assets, searchTerm]);
+        .some((v) => String(v).toLowerCase().includes(q));
+    });
+  }, [overview?.assets, searchTerm, conditionFilter, minOpenIssues]);
+
+  const activeFilterChips = useMemo<ActiveFilterChip[]>(() => {
+    const chips: ActiveFilterChip[] = [];
+    if (selectedCity !== "all") {
+      chips.push({
+        key: "city",
+        label: `City: ${selectedCity}`,
+        onRemove: () => {
+          setSelectedCity("all");
+          setSelectedWard("all");
+        },
+      });
+    }
+    if (selectedWard !== "all") {
+      chips.push({
+        key: "ward",
+        label: `Ward: ${selectedWard}`,
+        onRemove: () => setSelectedWard("all"),
+      });
+    }
+    if (assetTypeFilter !== "all") {
+      const lbl =
+        ASSET_TYPE_OPTIONS.find((o) => o.value === assetTypeFilter)?.shortLabel || assetTypeFilter;
+      chips.push({
+        key: "type",
+        label: `Type: ${lbl}`,
+        onRemove: () => setAssetTypeFilter("all"),
+      });
+    }
+    if (gradeFilter !== "all") {
+      chips.push({
+        key: "grade",
+        label: `Grade: ${gradeFilter}`,
+        onRemove: () => setGradeFilter("all"),
+      });
+    }
+    if (conditionFilter !== "all") {
+      const condLbl =
+        conditionFilter === "deteriorating"
+          ? "Deteriorating"
+          : conditionFilter === "overdue"
+            ? "Overdue Maint (≥6mo)"
+            : "Cross-Impact";
+      chips.push({
+        key: "cond",
+        label: condLbl,
+        onRemove: () => setConditionFilter("all"),
+      });
+    }
+    if (minOpenIssues > 0) {
+      chips.push({
+        key: "minOpen",
+        label: `≥ ${minOpenIssues} Open Issues`,
+        onRemove: () => setMinOpenIssues(0),
+      });
+    }
+    if (sortBy !== "lowest_health") {
+      const sLbl = SORT_OPTIONS.find((s) => s.value === sortBy)?.label || sortBy;
+      chips.push({
+        key: "sort",
+        label: `Sort: ${sLbl}`,
+        onRemove: () => setSortBy("lowest_health"),
+      });
+    }
+    return chips;
+  }, [selectedCity, selectedWard, assetTypeFilter, gradeFilter, conditionFilter, minOpenIssues, sortBy]);
+
+  function handleResetFilters() {
+    setSelectedCity("all");
+    setSelectedWard("all");
+    setAssetTypeFilter("all");
+    setGradeFilter("all");
+    setConditionFilter("all");
+    setMinOpenIssues(0);
+    setSortBy("lowest_health");
+    setSearchTerm("");
+  }
 
   const activeAsset: InfrastructureAsset | null = assetDetails?.asset || null;
   const breakdown = activeAsset?.scoreBreakdown || {};
@@ -1015,64 +1123,32 @@ export default function InfrastructureHealth() {
         </div>
       </div>
 
-      {/* Filters & View Switcher */}
-      <div className="glass-panel flex flex-col gap-3 p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          {/* City Pills */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-ink-soft">
-              <GlobeHemisphereEast size={14} className="text-primary" />
-              Jurisdiction:
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedCity("all");
-                setSelectedWard("all");
-              }}
-              className={`rounded-full px-3 py-1 text-xs font-bold transition cursor-pointer ${
-                selectedCity === "all"
-                  ? "bg-primary text-white shadow-sm"
-                  : "border border-white/70 bg-white/65 text-ink-soft hover:bg-white"
-              }`}
-            >
-              All Cities
-            </button>
-            {availableCities.map((city) => {
-              const active = selectedCity.toLowerCase() === city.toLowerCase();
-              return (
-                <button
-                  key={city}
-                  type="button"
-                  onClick={() => {
-                    setSelectedCity(city);
-                    setSelectedWard("all");
-                  }}
-                  className={`rounded-full px-3 py-1 text-xs font-bold transition cursor-pointer ${
-                    active
-                      ? "bg-primary text-white shadow-sm"
-                      : "border border-white/70 bg-white/65 text-ink-soft hover:bg-white"
-                  }`}
-                >
-                  {city}
-                </button>
-              );
-            })}
-
-            {selectedWard !== "all" && (
-              <button
-                type="button"
-                onClick={() => setSelectedWard("all")}
-                className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-800 hover:bg-indigo-100 cursor-pointer"
-              >
-                Ward: {selectedWard}
-                <X size={11} weight="bold" />
-              </button>
-            )}
+      {/* Clean Compact Filter Bar + Expandable Panel */}
+      <ExpandableFilterBar
+        isOpen={filtersOpen}
+        onToggle={() => setFiltersOpen((prev) => !prev)}
+        activeCount={activeFilterChips.length}
+        chips={activeFilterChips}
+        onResetAll={handleResetFilters}
+        panelTitle="Infrastructure Health Filters"
+        leading={
+          <div className="relative min-w-[220px] flex-1 max-w-sm">
+            <MagnifyingGlass
+              size={14}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-soft"
+            />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search asset code (RD-HYD-1024), ward, street…"
+              aria-label="Filter listed assets"
+              className="glass-input w-full py-2 pl-8 pr-3 text-xs"
+            />
           </div>
-
-          {/* View Mode Segmented Control */}
-          <div className="inline-flex self-start rounded-2xl border border-white/70 bg-white/55 p-1 backdrop-blur-md">
+        }
+        trailing={
+          <div className="inline-flex rounded-2xl border border-white/70 bg-white/55 p-1 backdrop-blur-md">
             <button
               type="button"
               onClick={() => setViewMode("assets")}
@@ -1083,7 +1159,7 @@ export default function InfrastructureHealth() {
               }`}
             >
               <Heartbeat size={14} weight="duotone" />
-              Monitored Assets ({overview?.assets.length ?? 0})
+              Monitored Assets ({filteredAssets.length})
             </button>
             <button
               type="button"
@@ -1098,77 +1174,151 @@ export default function InfrastructureHealth() {
               Ward Health Rankings ({overview?.wards.length ?? 0})
             </button>
           </div>
-        </div>
-
-        {/* Asset Type + Grade + Sort filters in Assets Mode */}
-        {viewMode === "assets" && (
-          <div className="flex flex-col gap-2.5 border-t border-white/50 pt-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Funnel size={13} className="mr-0.5 text-ink-soft" />
-              {ASSET_TYPE_OPTIONS.map((opt) => {
-                const active = assetTypeFilter === opt.value;
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setAssetTypeFilter(opt.value)}
-                    className={`rounded-full px-2.5 py-1 text-[11px] font-bold transition cursor-pointer ${
-                      active
-                        ? "bg-slate-800 text-white shadow-sm"
-                        : "border border-white/70 bg-white/60 text-ink-soft hover:bg-white"
-                    }`}
-                  >
-                    {opt.shortLabel}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex flex-wrap items-center gap-1">
-                {GRADE_OPTIONS.map((grade) => {
-                  const active = gradeFilter === grade;
-                  return (
-                    <button
-                      key={grade}
-                      type="button"
-                      onClick={() => setGradeFilter(grade)}
-                      className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase transition cursor-pointer ${
-                        active
-                          ? grade === "CRITICAL"
-                            ? "bg-rose-600 text-white"
-                            : grade === "POOR"
-                              ? "bg-amber-600 text-white"
-                              : grade === "FAIR"
-                                ? "bg-sky-600 text-white"
-                                : grade === "GOOD"
-                                  ? "bg-emerald-600 text-white"
-                                  : "bg-primary text-white"
-                          : "border border-white/70 bg-white/60 text-ink-soft hover:bg-white"
-                      }`}
-                    >
-                      {grade === "all" ? "All Grades" : grade}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                aria-label="Sort infrastructure assets"
-                className="glass-input py-1.5 pl-3 pr-7 text-xs font-semibold"
-              >
-                {SORT_OPTIONS.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+        }
+      >
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {/* Jurisdiction */}
+          <div className="flex flex-col gap-1.5">
+            <label className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              <GlobeHemisphereEast size={13} className="text-primary" />
+              Jurisdiction (City)
+            </label>
+            <select
+              value={selectedCity}
+              onChange={(e) => {
+                setSelectedCity(e.target.value);
+                setSelectedWard("all");
+              }}
+              aria-label="Filter by city"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              <option value="all">All Cities</option>
+              {availableCities.map((city) => (
+                <option key={city} value={city}>
+                  {city}
+                </option>
+              ))}
+            </select>
           </div>
-        )}
-      </div>
+
+          {/* Ward */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Municipal Ward
+            </label>
+            <select
+              value={selectedWard}
+              onChange={(e) => setSelectedWard(e.target.value)}
+              aria-label="Filter by ward"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              <option value="all">All Wards</option>
+              {availableWards.map((ward) => (
+                <option key={ward} value={ward}>
+                  {ward}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Asset Type */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Asset Category
+            </label>
+            <select
+              value={assetTypeFilter}
+              onChange={(e) => setAssetTypeFilter(e.target.value as "all" | AssetType)}
+              aria-label="Filter by asset category"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              {ASSET_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Health Grade */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Health Grade
+            </label>
+            <select
+              value={gradeFilter}
+              onChange={(e) => setGradeFilter(e.target.value as "all" | HealthGrade)}
+              aria-label="Filter by health grade"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              {GRADE_OPTIONS.map((grade) => (
+                <option key={grade} value={grade}>
+                  {grade === "all" ? "All Grades" : grade}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Condition & Maintenance Pattern */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Condition &amp; Pattern
+            </label>
+            <select
+              value={conditionFilter}
+              onChange={(e) =>
+                setConditionFilter(
+                  e.target.value as "all" | "deteriorating" | "overdue" | "cross_impact",
+                )
+              }
+              aria-label="Filter by condition pattern"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              <option value="all">All Conditions</option>
+              <option value="deteriorating">Deteriorating Trend Only</option>
+              <option value="overdue">Overdue Maintenance (≥ 6 mo)</option>
+              <option value="cross_impact">Has Cross-Infrastructure Impact</option>
+            </select>
+          </div>
+
+          {/* Minimum Open Complaints */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Minimum Open Issues
+            </label>
+            <select
+              value={String(minOpenIssues)}
+              onChange={(e) => setMinOpenIssues(Number(e.target.value))}
+              aria-label="Minimum open complaints"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              <option value="0">Any Count</option>
+              <option value="1">≥ 1 Open Complaint</option>
+              <option value="2">≥ 2 Open Complaints</option>
+              <option value="3">≥ 3 Open Complaints</option>
+            </select>
+          </div>
+
+          {/* Sort By */}
+          <div className="flex flex-col gap-1.5 md:col-span-2">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Sort Order
+            </label>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              aria-label="Sort infrastructure assets"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              {SORT_OPTIONS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </ExpandableFilterBar>
 
       {/* Main Content */}
       {loading && !overview ? (
@@ -1310,21 +1460,11 @@ export default function InfrastructureHealth() {
       ) : (
         /* Assets & Inspector Split View */
         <div className="grid gap-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.25fr)] xl:items-start">
-          {/* Left Column: Search + Asset List */}
+          {/* Left Column: Asset List */}
           <div className="glass-panel flex flex-col gap-3 p-4">
-            <div className="relative">
-              <MagnifyingGlass
-                size={15}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-soft"
-              />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search by asset code (e.g. RD-TVM-066), road, or ward..."
-                aria-label="Filter listed assets"
-                className="glass-input w-full py-2 pl-9 pr-3 text-xs"
-              />
+            <div className="flex items-center justify-between px-0.5 text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              <span>Assets ({filteredAssets.length})</span>
+              <span className="font-normal normal-case">Click card to inspect score &amp; repairs</span>
             </div>
 
             {filteredAssets.length === 0 ? (
@@ -1488,6 +1628,14 @@ export default function InfrastructureHealth() {
                     </p>
 
                     <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      <Link
+                        to={`/officer/copilot?assetCode=${encodeURIComponent(activeAsset.assetCode)}&q=${encodeURIComponent(`Why is ${activeAsset.assetCode} repeatedly receiving complaints and what should be inspected before repair?`)}`}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50/90 px-3 py-1.5 text-xs font-bold text-purple-800 transition hover:bg-purple-100"
+                      >
+                        <Robot size={13} weight="bold" />
+                        Ask Copilot
+                      </Link>
+
                       <Link
                         to={`/officer/knowledge-graph?assetCode=${encodeURIComponent(activeAsset.assetCode)}`}
                         className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/85 px-3 py-1.5 text-xs font-bold text-indigo-800 transition hover:bg-indigo-100"

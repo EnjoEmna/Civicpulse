@@ -11,7 +11,6 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
   MapPin,
-  Funnel,
   ArrowsClockwise,
   WarningCircle,
   Images,
@@ -20,6 +19,7 @@ import {
   Crosshair,
 } from "@phosphor-icons/react";
 import { StatusBadge, PriorityTag } from "../components/StatusBadge";
+import { ExpandableFilterBar, type ActiveFilterChip } from "../components/ExpandableFilterBar";
 import { api } from "../api/client";
 import type { Complaint } from "../types/complaint";
 import type { ActiveCitiesResponse, GeocodePlaceResult } from "../types/spatial";
@@ -27,7 +27,7 @@ import type { ActiveCitiesResponse, GeocodePlaceResult } from "../types/spatial"
 const DEFAULT_CENTER: [number, number] = [17.4156, 78.4357];
 
 const STATUS_OPTIONS = [
-  { value: "all", label: "All statuses" },
+  { value: "all", label: "All Statuses" },
   { value: "SUBMITTED", label: "Submitted" },
   { value: "UNDER_REVIEW", label: "Under Review" },
   { value: "ASSIGNED", label: "Assigned" },
@@ -36,6 +36,24 @@ const STATUS_OPTIONS = [
   { value: "DUPLICATE_SUSPECTED", label: "Duplicate Suspected" },
   { value: "RESOLVED", label: "Resolved" },
   { value: "REJECTED", label: "Rejected" },
+];
+
+const CATEGORY_OPTIONS = [
+  { value: "all", label: "All Categories" },
+  { value: "ROAD", label: "Roads" },
+  { value: "WATER_SUPPLY", label: "Water Supply" },
+  { value: "ELECTRICITY", label: "Electricity" },
+  { value: "SANITATION", label: "Sanitation" },
+  { value: "PUBLIC_SAFETY", label: "Public Safety" },
+  { value: "OTHER", label: "Other" },
+];
+
+const PRIORITY_OPTIONS = [
+  { value: "all", label: "All Priorities" },
+  { value: "critical", label: "Critical" },
+  { value: "high", label: "High" },
+  { value: "medium", label: "Medium" },
+  { value: "low", label: "Low" },
 ];
 
 function getStatusPinHex(status: string): string {
@@ -139,6 +157,10 @@ export default function IssueMap() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [cityFilter, setCityFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [priorityFilter, setPriorityFilter] = useState<string>("all");
+  const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
+
   const [citiesData, setCitiesData] = useState<ActiveCitiesResponse | null>(null);
 
   const [placeQuery, setPlaceQuery] = useState("");
@@ -161,7 +183,11 @@ export default function IssueMap() {
       .catch(() => {});
   }, []);
 
-  async function loadMapPins(currentStatus: string, currentCity: string) {
+  async function loadMapPins(
+    currentStatus: string,
+    currentCity: string,
+    currentCategory: string,
+  ) {
     setLoading(true);
     setError(null);
 
@@ -169,6 +195,7 @@ export default function IssueMap() {
       const data = await api.getMapComplaints({
         status: currentStatus,
         city: currentCity !== "all" ? currentCity : undefined,
+        category: currentCategory !== "all" ? currentCategory : undefined,
       });
       const validCoordinates = data.filter(
         (c) =>
@@ -192,8 +219,15 @@ export default function IssueMap() {
   }
 
   useEffect(() => {
-    void loadMapPins(statusFilter, cityFilter);
-  }, [statusFilter, cityFilter]);
+    void loadMapPins(statusFilter, cityFilter, categoryFilter);
+  }, [statusFilter, cityFilter, categoryFilter]);
+
+  const visiblePins = useMemo(() => {
+    if (priorityFilter === "all") return pins;
+    return pins.filter(
+      (p) => String(p.priority || "medium").toLowerCase() === priorityFilter,
+    );
+  }, [pins, priorityFilter]);
 
   async function handlePlaceSearch(e: FormEvent) {
     e.preventDefault();
@@ -259,15 +293,56 @@ export default function IssueMap() {
     );
   }
 
+  const activeFilterChips = useMemo<ActiveFilterChip[]>(() => {
+    const chips: ActiveFilterChip[] = [];
+    if (cityFilter !== "all") {
+      chips.push({
+        key: "city",
+        label: `City: ${cityFilter}`,
+        onRemove: () => setCityFilter("all"),
+      });
+    }
+    if (statusFilter !== "all") {
+      chips.push({
+        key: "status",
+        label: `Status: ${STATUS_OPTIONS.find((s) => s.value === statusFilter)?.label || statusFilter}`,
+        onRemove: () => setStatusFilter("all"),
+      });
+    }
+    if (categoryFilter !== "all") {
+      chips.push({
+        key: "cat",
+        label: `Category: ${CATEGORY_OPTIONS.find((c) => c.value === categoryFilter)?.label || categoryFilter}`,
+        onRemove: () => setCategoryFilter("all"),
+      });
+    }
+    if (priorityFilter !== "all") {
+      chips.push({
+        key: "priority",
+        label: `Priority: ${priorityFilter.toUpperCase()}`,
+        onRemove: () => setPriorityFilter("all"),
+      });
+    }
+    return chips;
+  }, [cityFilter, statusFilter, categoryFilter, priorityFilter]);
+
+  function handleResetMapFilters() {
+    setCityFilter("all");
+    setStatusFilter("all");
+    setCategoryFilter("all");
+    setPriorityFilter("all");
+    setFocusPoint(null);
+  }
+
   const selected = useMemo(
-    () => pins.find((p) => p.id === selectedId) ?? null,
-    [pins, selectedId],
+    () => visiblePins.find((p) => p.id === selectedId) ?? null,
+    [visiblePins, selectedId],
   );
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Header + Status & Multi-City Filter */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/* Page Title */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-600">
             Geographic View
@@ -277,70 +352,97 @@ export default function IssueMap() {
           </h1>
         </div>
 
-        <div className="relative flex flex-wrap items-center gap-2 self-start sm:self-auto">
-          <form onSubmit={(e) => void handlePlaceSearch(e)} className="flex items-center gap-1.5">
-            <div className="relative">
-              <MagnifyingGlass
-                size={14}
-                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-soft"
-              />
-              <input
-                type="text"
-                value={placeQuery}
-                onChange={(e) => setPlaceQuery(e.target.value)}
-                placeholder="Search city or area..."
-                aria-label="Jump to city or locality"
-                className="rounded-2xl border border-white/70 bg-white/55 py-1.5 pl-8 pr-3 text-xs font-medium text-ink shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)] backdrop-blur-md focus:outline-none w-44"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={searchingPlace}
-              className="rounded-2xl border border-indigo-200 bg-indigo-50/80 px-2.5 py-1.5 text-xs font-bold text-indigo-800 hover:bg-indigo-100 cursor-pointer"
-            >
-              {searchingPlace ? "..." : "Go"}
-            </button>
-          </form>
+        <button
+          type="button"
+          onClick={() => void loadMapPins(statusFilter, cityFilter, categoryFilter)}
+          disabled={loading}
+          className="inline-flex items-center gap-1.5 self-start rounded-xl border border-white/75 bg-white/65 px-3.5 py-2 text-xs font-bold text-ink-soft shadow-sm backdrop-blur-md hover:bg-white hover:text-ink disabled:opacity-50 cursor-pointer sm:self-auto"
+        >
+          <ArrowsClockwise size={14} className={loading ? "animate-spin text-primary" : ""} />
+          Refresh Map
+        </button>
+      </div>
 
-          {placeResults.length > 0 && (
-            <div className="absolute left-0 top-10 z-[1100] w-72 overflow-hidden rounded-2xl border border-white/80 bg-white/95 shadow-xl backdrop-blur-xl">
-              <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto">
-                {placeResults.map((place, idx) => (
-                  <li key={`${place.label}-${idx}`}>
-                    <button
-                      type="button"
-                      onClick={() => handlePickPlace(place)}
-                      className="flex w-full flex-col px-3 py-2 text-left text-xs hover:bg-blue-50/70 cursor-pointer"
-                    >
-                      <span className="font-semibold text-ink truncate">{place.label}</span>
-                      <span className="text-[10px] text-ink-soft">{place.city}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+      {/* Compact Place Search + Expandable Filter Panel */}
+      <ExpandableFilterBar
+        isOpen={filtersOpen}
+        onToggle={() => setFiltersOpen((prev) => !prev)}
+        activeCount={activeFilterChips.length}
+        chips={activeFilterChips}
+        onResetAll={handleResetMapFilters}
+        panelTitle="Map Jurisdiction, Status & Category Filters"
+        leading={
+          <div className="relative flex flex-1 flex-wrap items-center gap-2 min-w-[220px]">
+            <form onSubmit={(e) => void handlePlaceSearch(e)} className="flex flex-1 items-center gap-1.5 max-w-sm">
+              <div className="relative flex-1">
+                <MagnifyingGlass
+                  size={14}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-soft"
+                />
+                <input
+                  type="text"
+                  value={placeQuery}
+                  onChange={(e) => setPlaceQuery(e.target.value)}
+                  placeholder="Jump to city or locality..."
+                  aria-label="Jump to city or locality"
+                  className="glass-input w-full py-2 pl-8 pr-3 text-xs"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={searchingPlace}
+                className="rounded-xl border border-indigo-200 bg-indigo-50/80 px-3 py-2 text-xs font-bold text-indigo-800 hover:bg-indigo-100 cursor-pointer"
+              >
+                {searchingPlace ? "..." : "Go"}
+              </button>
+            </form>
 
+            {placeResults.length > 0 && (
+              <div className="absolute left-0 top-11 z-[1100] w-72 overflow-hidden rounded-2xl border border-white/80 bg-white/95 shadow-xl backdrop-blur-xl">
+                <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto">
+                  {placeResults.map((place, idx) => (
+                    <li key={`${place.label}-${idx}`}>
+                      <button
+                        type="button"
+                        onClick={() => handlePickPlace(place)}
+                        className="flex w-full flex-col px-3 py-2 text-left text-xs hover:bg-blue-50/70 cursor-pointer"
+                      >
+                        <span className="font-semibold text-ink truncate">{place.label}</span>
+                        <span className="text-[10px] text-ink-soft">{place.city}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        }
+        trailing={
           <button
             type="button"
             onClick={handleUseMyLocation}
             disabled={locating}
-            className="inline-flex items-center gap-1 rounded-2xl border border-white/70 bg-white/55 px-2.5 py-1.5 text-xs font-semibold text-primary shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)] backdrop-blur-md hover:bg-white cursor-pointer"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-white/75 bg-white/75 px-3 py-2 text-xs font-bold text-primary hover:bg-white cursor-pointer disabled:opacity-60"
             title="Center on my location"
           >
             <Crosshair size={14} weight="bold" />
             {locating ? "Locating..." : "My Location"}
           </button>
-
-          <div className="flex items-center gap-1.5 rounded-2xl border border-white/70 bg-white/50 px-3 py-1.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)] backdrop-blur-md">
-            <GlobeHemisphereEast size={15} weight="bold" className="text-ink-soft" />
+        }
+      >
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              <GlobeHemisphereEast size={13} className="text-primary" />
+              Jurisdiction (City)
+            </label>
             <select
               value={cityFilter}
               onChange={(e) => {
                 setFocusPoint(null);
                 setCityFilter(e.target.value);
               }}
-              className="bg-transparent text-xs font-semibold text-ink focus:outline-none cursor-pointer"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
               aria-label="Filter by city"
             >
               <option value="all">All Cities</option>
@@ -352,12 +454,14 @@ export default function IssueMap() {
             </select>
           </div>
 
-          <div className="flex items-center gap-2 rounded-2xl border border-white/70 bg-white/50 px-3 py-1.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)] backdrop-blur-md">
-            <Funnel size={16} weight="bold" className="text-ink-soft" />
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Complaint Status
+            </label>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-transparent text-xs font-semibold text-ink focus:outline-none cursor-pointer"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
               aria-label="Filter by status"
             >
               {STATUS_OPTIONS.map((opt) => (
@@ -368,17 +472,43 @@ export default function IssueMap() {
             </select>
           </div>
 
-          <button
-            type="button"
-            onClick={() => void loadMapPins(statusFilter, cityFilter)}
-            disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-2xl border border-white/70 bg-white/50 px-3 py-1.5 text-xs font-semibold text-ink-soft shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)] backdrop-blur-md hover:bg-white/80 hover:text-ink disabled:opacity-50 cursor-pointer"
-          >
-            <ArrowsClockwise size={14} className={loading ? "animate-spin text-primary" : ""} />
-            Refresh
-          </button>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Category
+            </label>
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+              aria-label="Filter by category"
+            >
+              {CATEGORY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Priority
+            </label>
+            <select
+              value={priorityFilter}
+              onChange={(e) => setPriorityFilter(e.target.value)}
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+              aria-label="Filter by priority"
+            >
+              {PRIORITY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-      </div>
+      </ExpandableFilterBar>
 
       {error && (
         <div
@@ -392,7 +522,7 @@ export default function IssueMap() {
           <p className="text-xs text-rose-700">{error}</p>
           <button
             type="button"
-            onClick={() => void loadMapPins(statusFilter, cityFilter)}
+            onClick={() => void loadMapPins(statusFilter, cityFilter, categoryFilter)}
             className="self-start rounded-lg border border-white/70 bg-white/70 px-3 py-1.5 text-xs font-semibold text-ink hover:bg-white cursor-pointer"
           >
             Retry
@@ -414,9 +544,13 @@ export default function IssueMap() {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
 
-            <MapViewportController pins={pins} selected={selected} focusPoint={focusPoint} />
+            <MapViewportController
+              pins={visiblePins}
+              selected={selected}
+              focusPoint={focusPoint}
+            />
 
-            {pins.map((p) => {
+            {visiblePins.map((p) => {
               const refCode = p.referenceId ?? p.id;
               return (
                 <Marker
@@ -459,7 +593,7 @@ export default function IssueMap() {
           <span className="pointer-events-none absolute bottom-3.5 left-3.5 z-[1000] rounded-full border border-white/70 bg-white/80 px-3 py-1.5 text-xs font-medium text-ink shadow-[0_4px_12px_rgba(15,23,42,0.12)] backdrop-blur-md">
             {loading
               ? "Loading map coordinates…"
-              : `${pins.length} mapped complaint${pins.length === 1 ? "" : "s"}`}
+              : `${visiblePins.length} mapped complaint${visiblePins.length === 1 ? "" : "s"}`}
           </span>
 
           {/* Floating Legend Capsule */}
@@ -538,7 +672,7 @@ export default function IssueMap() {
                 <h2 className="text-xs font-bold uppercase tracking-wider text-ink-soft">
                   {loading
                     ? "Loading Issues…"
-                    : `${pins.length} Issue${pins.length !== 1 ? "s" : ""} on Map`}
+                    : `${visiblePins.length} Issue${visiblePins.length !== 1 ? "s" : ""} on Map`}
                 </h2>
               </div>
 
@@ -547,19 +681,19 @@ export default function IssueMap() {
                   <ArrowsClockwise size={16} className="animate-spin text-primary" />
                   Fetching geolocated complaints…
                 </div>
-              ) : pins.length === 0 ? (
+              ) : visiblePins.length === 0 ? (
                 <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center py-12">
                   <MapPin size={26} weight="duotone" className="text-ink-soft/60" />
                   <p className="text-xs font-semibold text-ink">
                     No mapped complaints found
                   </p>
                   <p className="text-[11px] text-ink-soft">
-                    Try changing the status filter or check back once complaints include coordinates.
+                    Try changing the filters or check back once complaints include coordinates.
                   </p>
                 </div>
               ) : (
                 <ul className="flex flex-1 flex-col gap-2 overflow-y-auto pr-1">
-                  {pins.map((p) => (
+                  {visiblePins.map((p) => (
                     <li key={p.id}>
                       <button
                         type="button"

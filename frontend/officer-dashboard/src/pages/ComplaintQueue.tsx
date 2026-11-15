@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MagnifyingGlass, ArrowsClockwise, Sparkle } from "@phosphor-icons/react";
 import { ComplaintList, type SemanticScoreMeta } from "../components/ComplaintList";
+import { ExpandableFilterBar, type ActiveFilterChip } from "../components/ExpandableFilterBar";
 import { api } from "../api/client";
 import type { Complaint, SemanticSearchResponse } from "../types/complaint";
 import type { ActiveCitySummary } from "../types/spatial";
@@ -9,10 +10,13 @@ const STATUS_FILTERS: {
   key: string;
   label: string;
 }[] = [
-  { key: "all", label: "All" },
+  { key: "all", label: "All Statuses" },
   { key: "SUBMITTED", label: "Submitted" },
   { key: "UNDER_REVIEW", label: "Under Review" },
+  { key: "ASSIGNED", label: "Assigned" },
   { key: "IN_PROGRESS", label: "In Progress" },
+  { key: "NEEDS_INFORMATION", label: "Needs Information" },
+  { key: "DUPLICATE_SUSPECTED", label: "Duplicate Suspected" },
   { key: "RESOLVED", label: "Resolved" },
   { key: "REJECTED", label: "Rejected" },
 ];
@@ -21,7 +25,7 @@ const CATEGORY_FILTERS: {
   key: string;
   label: string;
 }[] = [
-  { key: "all", label: "All categories" },
+  { key: "all", label: "All Categories" },
   { key: "ROAD", label: "Roads" },
   { key: "WATER_SUPPLY", label: "Water Supply" },
   { key: "ELECTRICITY", label: "Electricity" },
@@ -30,10 +34,31 @@ const CATEGORY_FILTERS: {
   { key: "OTHER", label: "Other" },
 ];
 
+const PRIORITY_FILTERS = [
+  { key: "all", label: "All Priorities" },
+  { key: "critical", label: "Critical" },
+  { key: "high", label: "High" },
+  { key: "medium", label: "Medium" },
+  { key: "low", label: "Low" },
+];
+
+const PRIORITY_RANK: Record<string, number> = {
+  critical: 4,
+  urgent: 4,
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
 export default function ComplaintQueue() {
   const [status, setStatus] = useState<string>("all");
   const [category, setCategory] = useState<string>("all");
   const [city, setCity] = useState<string>("all");
+  const [priorityFilter, setPriorityFilter] = useState<string>("all");
+  const [overdueOnly, setOverdueOnly] = useState<boolean>(false);
+  const [sortBy, setSortBy] = useState<"newest" | "priority" | "oldest">("newest");
+  const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
+
   const [cities, setCities] = useState<ActiveCitySummary[]>([]);
   const [searchMode, setSearchMode] = useState<"keyword" | "semantic">("keyword");
   const [query, setQuery] = useState("");
@@ -143,6 +168,98 @@ export default function ComplaintQueue() {
     };
   }, [status, category, city, query, searchMode]);
 
+  const visibleComplaints = useMemo(() => {
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const list = complaints.filter((c) => {
+      if (
+        priorityFilter !== "all" &&
+        String(c.priority || "medium").toLowerCase() !== priorityFilter
+      ) {
+        return false;
+      }
+      if (overdueOnly) {
+        const closed = ["RESOLVED", "REJECTED"].includes(String(c.status).toUpperCase());
+        const ageMs = now - new Date(c.createdAt).getTime();
+        if (closed || !Number.isFinite(ageMs) || ageMs < sevenDaysMs) return false;
+      }
+      return true;
+    });
+
+    if (searchMode === "semantic" && query.trim().length >= 2) {
+      return list;
+    }
+
+    return [...list].sort((a, b) => {
+      if (sortBy === "priority") {
+        const diff =
+          (PRIORITY_RANK[String(b.priority || "medium").toLowerCase()] || 2) -
+          (PRIORITY_RANK[String(a.priority || "medium").toLowerCase()] || 2);
+        if (diff !== 0) return diff;
+      }
+      const ta = new Date(a.createdAt).getTime();
+      const tb = new Date(b.createdAt).getTime();
+      return sortBy === "oldest" ? ta - tb : tb - ta;
+    });
+  }, [complaints, priorityFilter, overdueOnly, sortBy, searchMode, query]);
+
+  const activeFilterChips = useMemo<ActiveFilterChip[]>(() => {
+    const chips: ActiveFilterChip[] = [];
+    if (status !== "all") {
+      chips.push({
+        key: "status",
+        label: `Status: ${STATUS_FILTERS.find((s) => s.key === status)?.label || status}`,
+        onRemove: () => setStatus("all"),
+      });
+    }
+    if (priorityFilter !== "all") {
+      chips.push({
+        key: "priority",
+        label: `Priority: ${priorityFilter.toUpperCase()}`,
+        onRemove: () => setPriorityFilter("all"),
+      });
+    }
+    if (city !== "all") {
+      chips.push({
+        key: "city",
+        label: `City: ${city}`,
+        onRemove: () => setCity("all"),
+      });
+    }
+    if (category !== "all") {
+      chips.push({
+        key: "cat",
+        label: `Category: ${CATEGORY_FILTERS.find((c) => c.key === category)?.label || category}`,
+        onRemove: () => setCategory("all"),
+      });
+    }
+    if (overdueOnly) {
+      chips.push({
+        key: "overdue",
+        label: "Overdue (>7d)",
+        onRemove: () => setOverdueOnly(false),
+      });
+    }
+    if (sortBy !== "newest") {
+      chips.push({
+        key: "sort",
+        label: `Sort: ${sortBy === "priority" ? "Highest Priority" : "Oldest First"}`,
+        onRemove: () => setSortBy("newest"),
+      });
+    }
+    return chips;
+  }, [status, priorityFilter, city, category, overdueOnly, sortBy]);
+
+  function handleResetFilters() {
+    setStatus("all");
+    setCategory("all");
+    setCity("all");
+    setPriorityFilter("all");
+    setOverdueOnly(false);
+    setSortBy("newest");
+    setQuery("");
+  }
+
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -157,57 +274,42 @@ export default function ComplaintQueue() {
 
         <span className="inline-flex items-center gap-1.5 self-start rounded-full border border-white/70 bg-white/50 px-3 py-1 text-xs font-semibold text-ink-soft shadow-[inset_0_1px_1px_rgba(255,255,255,0.8)] backdrop-blur-md sm:self-auto">
           <span className="h-1.5 w-1.5 rounded-full bg-blue-600" />
-          {loading ? "Loading complaints…" : `${complaints.length} complaint${complaints.length === 1 ? "" : "s"}`}
+          {loading
+            ? "Loading complaints…"
+            : `${visibleComplaints.length} complaint${visibleComplaints.length === 1 ? "" : "s"}`}
         </span>
       </div>
 
-      {/* Status Segmented Filter Bar */}
-      <div className="overflow-x-auto pb-1">
-        <div className="inline-flex min-w-full items-center rounded-2xl border border-white/70 bg-black/[0.04] p-1.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.04)] backdrop-blur-xl sm:min-w-0">
-          {STATUS_FILTERS.map((filter) => {
-            const isActive = status === filter.key;
-
-            return (
-              <button
-                key={filter.key}
-                type="button"
-                onClick={() => setStatus(filter.key)}
-                className={`flex-1 whitespace-nowrap rounded-xl px-4 py-1.5 text-xs font-semibold transition-all duration-200 sm:flex-initial cursor-pointer ${
-                  isActive
-                    ? "scale-[1.02] bg-white text-ink shadow-[0_2px_8px_rgba(0,0,0,0.08),inset_0_1px_1px_rgba(255,255,255,0.9)]"
-                    : "text-ink-soft hover:bg-white/30 hover:text-ink"
-                }`}
-              >
-                {filter.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Filter and Search Bar */}
-      <div className="glass-panel flex flex-col gap-3 p-3.5 lg:flex-row lg:items-center">
-        <div className="relative flex-1">
-          <MagnifyingGlass
-            size={17}
-            weight="bold"
-            className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-soft/70"
-          />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={
-              searchMode === "semantic"
-                ? 'AI Semantic search (e.g. "gaddha on sadak", "no streetlight near school")'
-                : "Search by reference ID, title, or description"
-            }
-            className="glass-input w-full py-2.5 pl-10 pr-4 text-sm"
-            aria-label="Search complaints"
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-xl border border-indigo-200/80 bg-white/70 p-0.5">
+      {/* Clean Compact Search Bar + Expandable Filter Panel */}
+      <ExpandableFilterBar
+        isOpen={filtersOpen}
+        onToggle={() => setFiltersOpen((prev) => !prev)}
+        activeCount={activeFilterChips.length}
+        chips={activeFilterChips}
+        onResetAll={handleResetFilters}
+        panelTitle="Complaint Queue Filters & Sorting"
+        leading={
+          <div className="relative min-w-[220px] flex-1 max-w-md">
+            <MagnifyingGlass
+              size={16}
+              weight="bold"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-soft/70"
+            />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={
+                searchMode === "semantic"
+                  ? 'AI Semantic search (e.g. "gaddha on sadak", "no streetlight")'
+                  : "Search by reference ID, title, or description"
+              }
+              className="glass-input w-full py-2 pl-9 pr-3 text-xs sm:text-sm"
+              aria-label="Search complaints"
+            />
+          </div>
+        }
+        trailing={
+          <div className="inline-flex rounded-xl border border-indigo-200/80 bg-white/75 p-0.5">
             <button
               type="button"
               onClick={() => setSearchMode("keyword")}
@@ -232,35 +334,111 @@ export default function ComplaintQueue() {
               AI Semantic
             </button>
           </div>
+        }
+      >
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Status
+            </label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              aria-label="Filter by status"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              {STATUS_FILTERS.map((f) => (
+                <option key={f.key} value={f.key}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-          <select
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-            className="glass-input px-3 py-2.5 text-sm font-medium cursor-pointer"
-            aria-label="Filter by city"
-          >
-            <option value="all">All cities</option>
-            {cities.map((c) => (
-              <option key={c.city} value={c.city}>
-                {c.city} ({c.complaintCount})
-              </option>
-            ))}
-          </select>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Priority
+            </label>
+            <select
+              value={priorityFilter}
+              onChange={(e) => setPriorityFilter(e.target.value)}
+              aria-label="Filter by priority"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              {PRIORITY_FILTERS.map((p) => (
+                <option key={p.key} value={p.key}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="glass-input px-3.5 py-2.5 text-sm font-medium cursor-pointer"
-            aria-label="Filter by category"
-          >
-            {CATEGORY_FILTERS.map((filter) => (
-              <option key={filter.key} value={filter.key}>
-                {filter.label}
-              </option>
-            ))}
-          </select>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Jurisdiction (City)
+            </label>
+            <select
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              aria-label="Filter by city"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              <option value="all">All Cities</option>
+              {cities.map((c) => (
+                <option key={c.city} value={c.city}>
+                  {c.city} ({c.complaintCount})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Category
+            </label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              aria-label="Filter by category"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              {CATEGORY_FILTERS.map((f) => (
+                <option key={f.key} value={f.key}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[11px] font-bold uppercase tracking-wider text-ink-soft">
+              Sort Order
+            </label>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as "newest" | "priority" | "oldest")}
+              aria-label="Sort complaints"
+              className="glass-input px-3 py-2 text-xs font-semibold cursor-pointer"
+            >
+              <option value="newest">Newest First</option>
+              <option value="priority">Highest Priority First</option>
+              <option value="oldest">Oldest First</option>
+            </select>
+          </div>
         </div>
-      </div>
+
+        <div className="mt-3 flex items-center justify-between border-t border-slate-200/70 pt-3">
+          <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-semibold text-ink">
+            <input
+              type="checkbox"
+              checked={overdueOnly}
+              onChange={(e) => setOverdueOnly(e.target.checked)}
+              className="rounded border-slate-300 text-primary"
+            />
+            Show Overdue Open Complaints Only (&gt; 7 days old)
+          </label>
+        </div>
+      </ExpandableFilterBar>
 
       {/* Semantic Query Understanding Metadata Strip */}
       {semanticMeta && !loading && (
@@ -335,7 +513,7 @@ export default function ComplaintQueue() {
             : "Loading complaints from CivicPulse…"}
         </div>
       ) : !error ? (
-        <ComplaintList complaints={complaints} semanticScores={semanticScores} />
+        <ComplaintList complaints={visibleComplaints} semanticScores={semanticScores} />
       ) : null}
     </div>
   );
