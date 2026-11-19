@@ -14,12 +14,10 @@ import {
   GlobeHemisphereEast,
   Graph,
   Heartbeat,
-  Info,
   Lightbulb,
   LinkSimple,
   MagnifyingGlass,
   MapPin,
-  Path,
   RoadHorizon,
   Robot,
   ShareNetwork,
@@ -48,7 +46,6 @@ import type {
   GraphOverviewResponse,
   NodeNeighborhoodResponse,
   PotentialContributingAsset,
-  ShortestPathResponse,
 } from "../types/graph";
 
 type InvestigationMode = "asset" | "complaint" | "node";
@@ -248,7 +245,6 @@ function computeRadialLayout(
   centerNode: GraphNode | null,
   nodes: GraphNode[],
   edges: GraphEdge[],
-  highlightedNodeIds: Set<string>,
 ): {
   positioned: PositionedNode[];
   visibleIds: Set<string>;
@@ -258,7 +254,6 @@ function computeRadialLayout(
     return { positioned: [], visibleIds: new Set(), hiddenCount: 0 };
   }
 
-  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
   const adj = new Map<string, string[]>();
   const inferredAdj = new Set<string>();
 
@@ -288,9 +283,6 @@ function computeRadialLayout(
   }
 
   const sortPriority = (a: GraphNode, b: GraphNode) => {
-    const aPath = highlightedNodeIds.has(a.id) ? 0 : 1;
-    const bPath = highlightedNodeIds.has(b.id) ? 0 : 1;
-    if (aPath !== bPath) return aPath - bPath;
     const aInf = inferredAdj.has(a.id) ? 0 : 1;
     const bInf = inferredAdj.has(b.id) ? 0 : 1;
     if (aInf !== bInf) return aInf - bInf;
@@ -311,22 +303,6 @@ function computeRadialLayout(
   const MAX_RING2 = 10;
   const ring1 = ring1Raw.slice(0, MAX_RING1);
   const ring2 = ring2Raw.slice(0, MAX_RING2);
-
-  // Ensure any path node is always included
-  for (const pid of highlightedNodeIds) {
-    if (pid === centerNode.id) continue;
-    const pn = nodeMap.get(pid);
-    if (!pn) continue;
-    if (!ring1.some((x) => x.id === pid) && !ring2.some((x) => x.id === pid)) {
-      if (hopMap.get(pid) === 1) {
-        if (ring1.length >= MAX_RING1) ring1.pop();
-        ring1.push(pn);
-      } else {
-        if (ring2.length >= MAX_RING2) ring2.pop();
-        ring2.push(pn);
-      }
-    }
-  }
 
   const positioned: PositionedNode[] = [
     { node: centerNode, x: CENTER_X, y: CENTER_Y, ring: 0, radius: 28 },
@@ -398,12 +374,6 @@ export default function KnowledgeGraph() {
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
 
   const [history, setHistory] = useState<Array<{ mode: InvestigationMode; key: string; label: string }>>([]);
-
-  // Shortest Path Tracer state
-  const [pathFrom, setPathFrom] = useState<string>("");
-  const [pathTo, setPathTo] = useState<string>("");
-  const [pathResult, setPathResult] = useState<ShortestPathResponse | null>(null);
-  const [tracingPath, setTracingPath] = useState<boolean>(false);
 
   const [loadingOverview, setLoadingOverview] = useState<boolean>(true);
   const [loadingGraph, setLoadingGraph] = useState<boolean>(false);
@@ -607,46 +577,8 @@ export default function KnowledgeGraph() {
     return () => window.clearTimeout(handle);
   }, [selectedCity, entityTypeFilter, searchTerm, refreshOverviewAndMetrics]);
 
-  // Select good default Shortest Path endpoints when center or overview changes
-  const selectablePathNodes = useMemo(() => {
-    const merged = new Map<string, GraphNode>();
-    for (const n of graphNodes) merged.set(n.nodeKey, n);
-    for (const n of overview?.nodes || []) {
-      if (!merged.has(n.nodeKey)) merged.set(n.nodeKey, n);
-    }
-    return Array.from(merged.values()).sort((a, b) => {
-      const pa = ENTITY_RING_PRIORITY[a.entityType] ?? 9;
-      const pb = ENTITY_RING_PRIORITY[b.entityType] ?? 9;
-      if (pa !== pb) return pa - pb;
-      return a.label.localeCompare(b.label);
-    });
-  }, [graphNodes, overview?.nodes]);
-
-  useEffect(() => {
-    if (!centerNode || selectablePathNodes.length < 2) return;
-    setPathTo(centerNode.nodeKey);
-
-    if (potentialAssets[0]?.upstreamComplaints?.[0]?.nodeKey) {
-      setPathFrom(potentialAssets[0].upstreamComplaints[0].nodeKey);
-      return;
-    }
-    if (potentialAssets[0]?.nodeKey) {
-      setPathFrom(potentialAssets[0].nodeKey);
-      return;
-    }
-    const candidate = selectablePathNodes.find(
-      (n) =>
-        n.nodeKey !== centerNode.nodeKey &&
-        (n.entityType === "COMPLAINT" || n.entityType === "INFRASTRUCTURE_ASSET"),
-    );
-    if (candidate) {
-      setPathFrom(candidate.nodeKey);
-    }
-  }, [centerNode, potentialAssets, selectablePathNodes]);
-
   async function handleSelectCity(city: string) {
     setSelectedCity(city);
-    setPathResult(null);
     const ov = await refreshOverviewAndMetrics(city, entityTypeFilter, searchTerm);
     if (!ov) return;
     const flagship = ov.flagshipTargets?.[0];
@@ -672,22 +604,6 @@ export default function KnowledgeGraph() {
     if (targetKey) {
       await loadTarget(mode, targetKey, { inferred: next, recordHistory: false });
     }
-    if (pathFrom && pathTo && pathResult) {
-      setTracingPath(true);
-      try {
-        const res = await api.findGraphShortestPath({
-          from: pathFrom,
-          to: pathTo,
-          maxDepth: 5,
-          includeInferred: next,
-        });
-        setPathResult(res);
-      } catch {
-        setPathResult(null);
-      } finally {
-        setTracingPath(false);
-      }
-    }
   }
 
   async function handleRebuildGraph() {
@@ -709,25 +625,6 @@ export default function KnowledgeGraph() {
       setError(err instanceof Error ? err.message : "Failed to rebuild Knowledge Graph");
     } finally {
       setRebuilding(false);
-    }
-  }
-
-  async function handleTracePath() {
-    if (!pathFrom || !pathTo) return;
-    setTracingPath(true);
-    setError(null);
-    try {
-      const res = await api.findGraphShortestPath({
-        from: pathFrom,
-        to: pathTo,
-        maxDepth: 5,
-        includeInferred,
-      });
-      setPathResult(res);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Shortest path lookup failed");
-    } finally {
-      setTracingPath(false);
     }
   }
 
@@ -767,37 +664,9 @@ export default function KnowledgeGraph() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [citiesData, overview]);
 
-  const highlightedNodeIds = useMemo(
-    () => new Set((pathResult?.found ? pathResult.pathNodes : []).map((n) => n.id)),
-    [pathResult],
-  );
-  const highlightedEdgeIds = useMemo(
-    () => new Set((pathResult?.found ? pathResult.pathEdges : []).map((e) => e.id)),
-    [pathResult],
-  );
-
-  // Merge active neighborhood + shortest path nodes/edges so traced paths render completely on canvas
-  const canvasNodes = useMemo(() => {
-    const byId = new Map<string, GraphNode>();
-    for (const n of graphNodes) byId.set(n.id, n);
-    if (pathResult?.found) {
-      for (const n of pathResult.pathNodes) byId.set(n.id, n);
-    }
-    return Array.from(byId.values());
-  }, [graphNodes, pathResult]);
-
-  const canvasEdges = useMemo(() => {
-    const byId = new Map<string, GraphEdge>();
-    for (const e of graphEdges) byId.set(e.id, e);
-    if (pathResult?.found) {
-      for (const e of pathResult.pathEdges) byId.set(e.id, e);
-    }
-    return Array.from(byId.values());
-  }, [graphEdges, pathResult]);
-
   const radial = useMemo(
-    () => computeRadialLayout(centerNode, canvasNodes, canvasEdges, highlightedNodeIds),
-    [centerNode, canvasNodes, canvasEdges, highlightedNodeIds],
+    () => computeRadialLayout(centerNode, graphNodes, graphEdges),
+    [centerNode, graphNodes, graphEdges],
   );
 
   const posMap = useMemo(
@@ -807,7 +676,7 @@ export default function KnowledgeGraph() {
 
   const renderedEdges = useMemo(
     () =>
-      canvasEdges.filter(
+      graphEdges.filter(
         (e) =>
           radial.visibleIds.has(e.sourceNodeId) &&
           radial.visibleIds.has(e.targetNodeId) &&
@@ -815,16 +684,16 @@ export default function KnowledgeGraph() {
           (relationFilter === "all" ||
             e.relationType.toUpperCase() === relationFilter.toUpperCase()),
       ),
-    [canvasEdges, includeInferred, radial.visibleIds, relationFilter],
+    [graphEdges, includeInferred, radial.visibleIds, relationFilter],
   );
 
   const availableRelations = useMemo(() => {
     const set = new Set<string>();
-    for (const e of canvasEdges) {
+    for (const e of graphEdges) {
       if (e.relationType) set.add(e.relationType.toUpperCase());
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [canvasEdges]);
+  }, [graphEdges]);
 
   const activeFilterChips = useMemo<ActiveFilterChip[]>(() => {
     const chips: ActiveFilterChip[] = [];
@@ -910,25 +779,6 @@ export default function KnowledgeGraph() {
       })
       .slice(0, 24);
   }, [overview?.nodes, graphNodes, entityTypeFilter, selectedCity, searchTerm]);
-
-  const activeProvenance = selectedEdge
-    ? {
-        title: `${formatRelationLabel(selectedEdge.relationType)} Edge`,
-        isInferred: selectedEdge.isInferred,
-        confidence: selectedEdge.confidence,
-        evidence: selectedEdge.evidence || selectedEdge.provenance?.evidenceSummary,
-        provenance: selectedEdge.provenance,
-      }
-    : selectedInspectorNode
-      ? {
-          title: `${ENTITY_THEME[selectedInspectorNode.entityType]?.label || selectedInspectorNode.entityType}: ${getShortNodeLabel(selectedInspectorNode)}`,
-          isInferred: Boolean(selectedInspectorNode.provenance?.isInferred),
-          confidence: selectedInspectorNode.provenance?.confidence ?? 1.0,
-          evidence:
-            selectedInspectorNode.provenance?.evidenceSummary || selectedInspectorNode.label,
-          provenance: selectedInspectorNode.provenance,
-        }
-      : null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -1397,12 +1247,6 @@ export default function KnowledgeGraph() {
                 <span className="inline-block h-0 w-4 border-t-2 border-dashed border-amber-600" />
                 Inferred (Non-Causal)
               </span>
-              {pathResult?.found && (
-                <span className="inline-flex items-center gap-1 text-violet-700">
-                  <span className="inline-block h-1 w-4 rounded bg-violet-600" />
-                  Shortest Path
-                </span>
-              )}
             </div>
           </div>
 
@@ -1451,27 +1295,16 @@ export default function KnowledgeGraph() {
                   >
                     <path d="M 0 1 L 8 5 L 0 9 z" fill="#d97706" />
                   </marker>
-                  <marker
-                    id="kg-arrow-path"
-                    viewBox="0 0 10 10"
-                    refX="8"
-                    refY="5"
-                    markerWidth="7"
-                    markerHeight="7"
-                    orient="auto-start-reverse"
-                  >
-                    <path d="M 0 1 L 8 5 L 0 9 z" fill="#7c3aed" />
-                  </marker>
                 </defs>
 
-                {/* Subtle Concentric Guide Rings */}
+                {/* Dotted Concentric Guide Rings */}
                 <circle
                   cx={CENTER_X}
                   cy={CENTER_Y}
                   r={162}
                   fill="none"
-                  stroke="#cbd5e1"
-                  strokeOpacity={0.5}
+                  stroke="#94a3b8"
+                  strokeOpacity={0.7}
                   strokeDasharray="4 6"
                 />
                 <circle
@@ -1479,8 +1312,8 @@ export default function KnowledgeGraph() {
                   cy={CENTER_Y}
                   r={262}
                   fill="none"
-                  stroke="#e2e8f0"
-                  strokeOpacity={0.75}
+                  stroke="#94a3b8"
+                  strokeOpacity={0.55}
                   strokeDasharray="3 6"
                 />
 
@@ -1501,23 +1334,19 @@ export default function KnowledgeGraph() {
                   const endX = tgt.x - ux * (tgt.radius + 6);
                   const endY = tgt.y - uy * (tgt.radius + 6);
 
-                  const isOnPath = highlightedEdgeIds.has(edge.id);
                   const isSelected = selectedEdge?.id === edge.id;
                   const isHovered = hoveredEdgeId === edge.id;
 
-                  const strokeColor = isOnPath
-                    ? "#7c3aed"
-                    : isSelected || isHovered
+                  const strokeColor =
+                    isSelected || isHovered
                       ? "#0f172a"
                       : edge.isInferred
                         ? "#d97706"
                         : "#94a3b8";
 
-                  const markerId = isOnPath
-                    ? "url(#kg-arrow-path)"
-                    : edge.isInferred
-                      ? "url(#kg-arrow-inferred)"
-                      : "url(#kg-arrow-factual)";
+                  const markerId = edge.isInferred
+                    ? "url(#kg-arrow-inferred)"
+                    : "url(#kg-arrow-factual)";
 
                   return (
                     <g
@@ -1545,10 +1374,10 @@ export default function KnowledgeGraph() {
                         y2={endY}
                         stroke={strokeColor}
                         strokeWidth={
-                          isOnPath ? 3.2 : isSelected || isHovered ? 2.6 : edge.isInferred ? 2 : 1.4
+                          isSelected || isHovered ? 2.6 : edge.isInferred ? 2 : 1.4
                         }
                         strokeOpacity={
-                          isOnPath || isSelected || isHovered || edge.isInferred ? 0.92 : 0.65
+                          isSelected || isHovered || edge.isInferred ? 0.92 : 0.65
                         }
                         strokeDasharray={edge.isInferred ? "6 4" : undefined}
                         markerEnd={markerId}
@@ -1561,7 +1390,6 @@ export default function KnowledgeGraph() {
                 {radial.positioned.map(({ node, x, y, ring, radius }) => {
                   const theme = ENTITY_THEME[node.entityType] || ENTITY_THEME.COMPLAINT;
                   const isCenter = ring === 0;
-                  const isPathNode = highlightedNodeIds.has(node.id);
                   const isInspected = selectedInspectorNode?.id === node.id && !selectedEdge;
                   const shortLabel = getShortNodeLabel(node);
                   const badgeScore =
@@ -1577,12 +1405,12 @@ export default function KnowledgeGraph() {
                       className="cursor-pointer group"
                       onClick={() => focusEntityNode(node)}
                     >
-                      {(isCenter || isPathNode || isInspected) && (
+                      {(isCenter || isInspected) && (
                         <circle
                           r={radius + 6}
                           fill="none"
-                          stroke={isPathNode ? "#7c3aed" : theme.stroke}
-                          strokeWidth={isPathNode ? 2.5 : 2}
+                          stroke={theme.stroke}
+                          strokeWidth={2}
                           strokeOpacity={0.45}
                         />
                       )}
@@ -1618,7 +1446,7 @@ export default function KnowledgeGraph() {
                           rx={6}
                           fill="#ffffff"
                           fillOpacity={isCenter ? 0.97 : 0.9}
-                          stroke={isPathNode ? "#8b5cf6" : "#e2e8f0"}
+                          stroke="#e2e8f0"
                           strokeWidth={0.9}
                         />
                         <text
@@ -1635,13 +1463,12 @@ export default function KnowledgeGraph() {
                   );
                 })}
 
-                {/* Top Overlay Layer for Selected / Hovered / Path / Upstream Potential Edge Badges */}
+                {/* Top Overlay Layer for Selected / Hovered / Upstream Potential Edge Badges */}
                 {renderedEdges.map((edge) => {
-                  const isOnPath = highlightedEdgeIds.has(edge.id);
                   const isSelected = selectedEdge?.id === edge.id;
                   const isHovered = hoveredEdgeId === edge.id;
                   const isPrimaryPotential = edge.relationType === "POTENTIALLY_IMPACTS";
-                  if (!isOnPath && !isSelected && !isHovered && !isPrimaryPotential) return null;
+                  if (!isSelected && !isHovered && !isPrimaryPotential) return null;
 
                   const src = posMap.get(edge.sourceNodeId);
                   const tgt = posMap.get(edge.targetNodeId);
@@ -1675,8 +1502,8 @@ export default function KnowledgeGraph() {
                         width={112}
                         height={18}
                         rx={9}
-                        fill={isOnPath ? "#f3e8ff" : edge.isInferred ? "#fef3c7" : "#f1f5f9"}
-                        stroke={isOnPath ? "#a855f7" : edge.isInferred ? "#f59e0b" : "#94a3b8"}
+                        fill={edge.isInferred ? "#fef3c7" : "#f1f5f9"}
+                        stroke={edge.isInferred ? "#f59e0b" : "#94a3b8"}
                         strokeWidth={1}
                       />
                       <text
@@ -1684,7 +1511,7 @@ export default function KnowledgeGraph() {
                         dominantBaseline="central"
                         fontSize={8.5}
                         fontWeight={800}
-                        fill={isOnPath ? "#6b21a8" : edge.isInferred ? "#92400e" : "#1e293b"}
+                        fill={edge.isInferred ? "#92400e" : "#1e293b"}
                       >
                         {labelText}
                       </text>
@@ -1700,7 +1527,7 @@ export default function KnowledgeGraph() {
                 <span className="rounded-full border border-white/80 bg-white/85 px-2.5 py-1 text-[10px] font-semibold text-ink-soft shadow-sm backdrop-blur-sm">
                   Showing {radial.positioned.length} nodes &amp; {renderedEdges.length} edges
                   {radial.hiddenCount > 0 ? ` (${radial.hiddenCount} more in list below)` : ""}
-                  {" · Click any node to pivot or any edge for provenance"}
+                  {" · Click any node to pivot or inspect relationships"}
                 </span>
               </div>
             )}
@@ -1765,7 +1592,7 @@ export default function KnowledgeGraph() {
           </div>
         </div>
 
-        {/* RIGHT PANE: Investigation Summary, Potential Contributors, Evidence Chains, Path Tracer & Provenance */}
+        {/* RIGHT PANE: Investigation Summary, Potential Contributors & Evidence Chains */}
         <div className="flex flex-col gap-4">
           {/* 1. Investigation Summary Card */}
           <div className="glass-panel flex flex-col gap-3 p-5">
@@ -2013,14 +1840,17 @@ export default function KnowledgeGraph() {
                                 </span>
                                 {step.edgeLabelAfter && (
                                   <span
-                                    className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-bold ${
+                                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${
                                       step.isInferred
                                         ? "border border-dashed border-amber-400 bg-amber-50 text-amber-900"
-                                        : "bg-slate-200/80 text-slate-700"
+                                        : "border border-slate-200/80 bg-slate-100 text-slate-700"
                                     }`}
                                   >
-                                    → {step.edgeLabelAfter}
-                                    {step.isInferred ? " ?" : ""} →
+                                    <span>{formatRelationLabel(step.edgeLabelAfter)}</span>
+                                    {step.isInferred && (
+                                      <span className="font-normal text-amber-700">(Inferred)</span>
+                                    )}
+                                    <span className="text-slate-400 font-bold select-none">→</span>
                                   </span>
                                 )}
                               </div>
@@ -2040,182 +1870,6 @@ export default function KnowledgeGraph() {
                   );
                 })}
               </div>
-            </div>
-          )}
-
-          {/* 4. Shortest Path Tracer */}
-          <div className="glass-panel flex flex-col gap-3 p-5">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Path size={15} weight="bold" className="text-violet-700" />
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-ink">
-                  Shortest Path Tracer (BFS)
-                </h3>
-              </div>
-              {pathResult && (
-                <button
-                  type="button"
-                  onClick={() => setPathResult(null)}
-                  className="text-[11px] font-bold text-ink-soft hover:text-ink cursor-pointer"
-                >
-                  Clear Path
-                </button>
-              )}
-            </div>
-
-            <div className="grid gap-2.5 sm:grid-cols-2">
-              <div className="flex flex-col gap-1">
-                <label htmlFor="kg-path-from" className="text-[11px] font-bold text-ink-soft">
-                  From Entity
-                </label>
-                <select
-                  id="kg-path-from"
-                  value={pathFrom}
-                  onChange={(e) => setPathFrom(e.target.value)}
-                  className="glass-input w-full py-1.5 px-2.5 text-xs font-medium"
-                >
-                  {selectablePathNodes.map((n) => (
-                    <option key={`from-${n.nodeKey}`} value={n.nodeKey}>
-                      [{ENTITY_THEME[n.entityType]?.shortLabel || n.entityType}] {n.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label htmlFor="kg-path-to" className="text-[11px] font-bold text-ink-soft">
-                  To Entity
-                </label>
-                <select
-                  id="kg-path-to"
-                  value={pathTo}
-                  onChange={(e) => setPathTo(e.target.value)}
-                  className="glass-input w-full py-1.5 px-2.5 text-xs font-medium"
-                >
-                  {selectablePathNodes.map((n) => (
-                    <option key={`to-${n.nodeKey}`} value={n.nodeKey}>
-                      [{ENTITY_THEME[n.entityType]?.shortLabel || n.entityType}] {n.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => void handleTracePath()}
-              disabled={tracingPath || !pathFrom || !pathTo}
-              className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-violet-600 px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60 cursor-pointer"
-            >
-              <Path size={14} weight="bold" />
-              {tracingPath ? "Tracing Path…" : "Find Shortest Path"}
-            </button>
-
-            {pathResult && (
-              <div className="rounded-2xl border border-violet-200/80 bg-violet-50/65 p-3.5 text-xs">
-                {pathResult.found ? (
-                  <>
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-extrabold text-violet-950">
-                        {pathResult.hopCount}-Hop Path Found
-                      </span>
-                      <span
-                        className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${
-                          pathResult.containsInferredEdge
-                            ? "border-amber-300 bg-amber-100 text-amber-900"
-                            : "border-emerald-300 bg-emerald-100 text-emerald-800"
-                        }`}
-                      >
-                        {pathResult.containsInferredEdge
-                          ? "Contains Inferred Link (Non-Causal)"
-                          : "Confirmed Records Only"}
-                      </span>
-                    </div>
-                    <ol className="space-y-1.5 text-[11px] text-ink">
-                      {pathResult.narrativeSteps.map((step, i) => (
-                        <li key={i} className="flex items-start gap-1.5">
-                          <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-violet-600 text-[9px] font-bold text-white">
-                            {i + 1}
-                          </span>
-                          <span>{step}</span>
-                        </li>
-                      ))}
-                    </ol>
-                  </>
-                ) : (
-                  <p className="font-medium text-ink-soft">
-                    No connecting path found within 5 hops under the current “Show Inferred Links” setting.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* 5. Provenance Metadata Inspector */}
-          {activeProvenance && (
-            <div className="glass-panel flex flex-col gap-2.5 p-5 text-xs">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Info size={15} weight="duotone" className="text-primary" />
-                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-ink">
-                    Provenance Inspector
-                  </h3>
-                </div>
-                <span
-                  className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${
-                    activeProvenance.isInferred
-                      ? "border-amber-300 bg-amber-50 text-amber-900"
-                      : "border-emerald-300 bg-emerald-50 text-emerald-800"
-                  }`}
-                >
-                  {activeProvenance.isInferred ? "Inferred · Non-Causal" : "Confirmed Record"} ·{" "}
-                  {Math.round(Number(activeProvenance.confidence ?? 1) * 100)}%
-                </span>
-              </div>
-
-              <p className="font-bold text-ink">{activeProvenance.title}</p>
-              {activeProvenance.evidence && (
-                <p className="rounded-xl border border-white/75 bg-white/60 px-3 py-2 text-[11px] text-ink">
-                  {activeProvenance.evidence}
-                </p>
-              )}
-
-              <div className="grid grid-cols-2 gap-2 text-[11px]">
-                <div className="rounded-xl border border-white/70 bg-white/55 px-2.5 py-2">
-                  <span className="block text-[10px] font-bold uppercase text-ink-soft">
-                    Source Table
-                  </span>
-                  <span className="font-mono font-semibold text-ink">
-                    {activeProvenance.provenance?.sourceTable || "derived"}
-                  </span>
-                </div>
-                <div className="rounded-xl border border-white/70 bg-white/55 px-2.5 py-2">
-                  <span className="block text-[10px] font-bold uppercase text-ink-soft">
-                    Generator Model
-                  </span>
-                  <span className="font-mono font-semibold text-ink">
-                    {activeProvenance.provenance?.model || "civicpulse-kg-builder"} v
-                    {activeProvenance.provenance?.version || "1.0.0"}
-                  </span>
-                </div>
-                <div className="col-span-2 rounded-xl border border-white/70 bg-white/55 px-2.5 py-2">
-                  <span className="block text-[10px] font-bold uppercase text-ink-soft">
-                    Source Record IDs &amp; Generated At
-                  </span>
-                  <span className="block truncate font-mono text-[10px] text-ink">
-                    {(activeProvenance.provenance?.sourceRecordIds || []).join(", ") || "—"}
-                  </span>
-                  <span className="text-[10px] text-ink-soft">
-                    Generated: {formatDateTime(activeProvenance.provenance?.generatedAt)}
-                  </span>
-                </div>
-              </div>
-
-              {activeProvenance.provenance?.disclaimer && (
-                <p className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-[11px] font-medium text-amber-950">
-                  {activeProvenance.provenance.disclaimer}
-                </p>
-              )}
             </div>
           )}
         </div>
